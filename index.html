@@ -1369,7 +1369,7 @@ function showBoard(cityId){
   document.getElementById('pickerView').style.display = 'none';
   document.getElementById('boardView').style.display = 'block';
   // Reset per-city UI state so switching cities doesn't carry over a stale filter/search.
-  activeFilter = 'all';
+  activeFilter = 'not_called';
   searchTerm = '';
   document.getElementById('search').value = '';
   document.getElementById('cityTitle').textContent = 'The Ledger';
