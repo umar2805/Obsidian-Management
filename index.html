@@ -1235,13 +1235,36 @@ function updateBulkCount(){
 document.getElementById('fBulk').addEventListener('input', updateBulkCount);
 
 document.getElementById('saveBulk').onclick = ()=>{
-  const { unique } = splitBulkLines();
+  const { unique, dupes } = splitBulkLines();
+  const countEl = document.getElementById('bulkCount');
+
+  if(unique.length === 0 && dupes.length === 0){
+    return; // nothing pasted — nothing to do
+  }
+
+  if(unique.length === 0){
+    // Every pasted name is already on this board. Skip the save entirely so
+    // we don't fire the "Saved" indicator for a no-op, and explain why
+    // nothing happened instead of silently closing the panel.
+    countEl.textContent = dupes.length === 1
+      ? 'Nothing added — that restaurant is already on this board.'
+      : `Nothing added — all ${dupes.length} are already on this board.`;
+    return;
+  }
+
   unique.forEach(name=> addTicket(name, ''));
   scheduleSave();
   document.getElementById('fBulk').value='';
-  updateBulkCount();
-  panelBulk.classList.remove('open');
   render();
+
+  if(dupes.length > 0){
+    // Some were skipped as duplicates — leave the panel open with a summary
+    // instead of closing it straight away, so this doesn't get missed.
+    countEl.textContent = `Added ${unique.length} new ${unique.length===1?'restaurant':'restaurants'} — ${dupes.length} ${dupes.length===1?'was':'were'} already on this board and skipped.`;
+  } else {
+    updateBulkCount();
+    panelBulk.classList.remove('open');
+  }
 };
 
 const detailModal = document.getElementById('detailModal');
@@ -1605,7 +1628,18 @@ function router(){
   if(m){ showBoard(decodeURIComponent(m[1]), decodeURIComponent(m[2])); return; }
   m = h.match(/^#\/country\/([^\/]+)$/);
   if(m){ showCityPicker(decodeURIComponent(m[1])); return; }
-  showCountryPicker();
+  // Root, no country/city in the hash yet. With only one country on the
+  // account, the country picker is just an extra click with nothing to
+  // choose between — jump straight to that country's city list instead.
+  // Once a second country gets added, this naturally starts showing the
+  // real picker again, since it's actually useful at that point.
+  getCountriesList().then(countries=>{
+    if(countries.length === 1){
+      location.hash = '#/country/' + countries[0].id;
+    } else {
+      showCountryPicker();
+    }
+  });
 }
 window.addEventListener('hashchange', router);
 
