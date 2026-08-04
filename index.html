@@ -45,6 +45,12 @@
     margin:0 auto;
     padding:32px 20px 90px;
   }
+  @media (max-width:600px){
+    /* the back-cta / board-topbar bar is fixed at top:10px and isn't part of
+       document flow, so the header needs enough top padding on small screens
+       to clear it — otherwise the title text slides underneath the button. */
+    .wrap{padding-top:64px;}
+  }
 
   /* header */
   header{
