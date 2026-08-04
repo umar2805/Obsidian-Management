@@ -1067,6 +1067,14 @@ function addTicket(name, notes){
   });
 }
 
+// Case/whitespace-insensitive match against the current city's board, so
+// "O Xavelha" and " o xavelha " are treated as the same restaurant.
+function normName(s){ return s.trim().toLowerCase(); }
+function isDuplicateName(name){
+  const norm = normName(name);
+  return tickets.some(t => normName(t.name) === norm);
+}
+
 function render(){
   document.getElementById('statTotal').textContent = tickets.length;
   document.getElementById('statCalled').textContent = tickets.filter(t=>t.status!=='not_called').length;
@@ -1180,6 +1188,7 @@ document.getElementById('cancelAdd').onclick = ()=>{
   panelAdd.classList.remove('open');
   document.getElementById('fName').value='';
   document.getElementById('fNotes').value='';
+  document.getElementById('fNameError').style.display='none';
 };
 document.getElementById('cancelBulk').onclick = ()=>{
   panelBulk.classList.remove('open');
@@ -1189,7 +1198,8 @@ document.getElementById('cancelBulk').onclick = ()=>{
 document.getElementById('saveAdd').onclick = ()=>{
   const name = document.getElementById('fName').value.trim();
   const errEl = document.getElementById('fNameError');
-  if(!name){ errEl.style.display='block'; return; }
+  if(!name){ errEl.textContent = 'Give it a name first.'; errEl.style.display='block'; return; }
+  if(isDuplicateName(name)){ errEl.textContent = `"${name}" is already on this board — no duplicates.`; errEl.style.display='block'; return; }
   errEl.style.display='none';
   addTicket(name, document.getElementById('fNotes').value);
   scheduleSave();
@@ -1198,22 +1208,35 @@ document.getElementById('saveAdd').onclick = ()=>{
   panelAdd.classList.remove('open');
   render();
 };
-function countBulkLines(){
+// Splits the pasted list into names actually worth adding vs. ones already on
+// this board (or repeated within the paste itself) — used by both the live
+// counter and the actual save, so they never disagree.
+function splitBulkLines(){
   const raw = document.getElementById('fBulk').value;
-  return raw.split('\n').map(l=>l.trim()).filter(Boolean).length;
+  const lines = raw.split('\n').map(l=>l.trim()).filter(Boolean);
+  const seen = new Set();
+  const unique = [], dupes = [];
+  lines.forEach(name=>{
+    const norm = normName(name);
+    if(seen.has(norm) || isDuplicateName(name)){ dupes.push(name); }
+    else { seen.add(norm); unique.push(name); }
+  });
+  return { unique, dupes };
 }
 function updateBulkCount(){
-  const n = countBulkLines();
-  document.getElementById('bulkCount').textContent = n + (n===1 ? ' restaurant detected' : ' restaurants detected');
+  const { unique, dupes } = splitBulkLines();
+  const n = unique.length + dupes.length;
+  let text = n + (n===1 ? ' restaurant detected' : ' restaurants detected');
+  if(dupes.length>0){
+    text += ` — ${dupes.length} already on this board, will be skipped`;
+  }
+  document.getElementById('bulkCount').textContent = text;
 }
 document.getElementById('fBulk').addEventListener('input', updateBulkCount);
 
 document.getElementById('saveBulk').onclick = ()=>{
-  const raw = document.getElementById('fBulk').value;
-  const lines = raw.split('\n').map(l=>l.trim()).filter(Boolean);
-  lines.forEach(name=>{
-    if(name) addTicket(name, '');
-  });
+  const { unique } = splitBulkLines();
+  unique.forEach(name=> addTicket(name, ''));
   scheduleSave();
   document.getElementById('fBulk').value='';
   updateBulkCount();
