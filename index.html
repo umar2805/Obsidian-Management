@@ -734,6 +734,13 @@ function setStatus(id, status){
   if(!t) return;
   t.status = status;
   t.updatedAt = Date.now();
+  if(status === 'not_called'){
+    // A full reset should clear everything tied to the previous calling attempt,
+    // not just the status label — otherwise a claim or old callback date lingers.
+    t.claimedBy = null;
+    t.claimedAt = null;
+    t.callbackDate = '';
+  }
   scheduleSave();
   render();
 }
