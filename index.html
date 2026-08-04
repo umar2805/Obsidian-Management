@@ -791,7 +791,7 @@ function render(){
   const today = todayStr();
   const counts = {all: tickets.length};
   STATUSES.forEach(s=> counts[s.key] = tickets.filter(t=>t.status===s.key).length);
-  const dueTodayCount = tickets.filter(t=> t.status==='call_later' && t.callbackDate===today).length;
+  const dueTodayCount = tickets.filter(t=> t.callbackDate===today).length;
 
   let pillsHtml = `<button class="pill ${activeFilter==='all'?'active':''}" data-f="all">All<b>${counts.all}</b></button>`;
   STATUSES.forEach(s=>{
@@ -804,7 +804,7 @@ function render(){
   });
 
   let list = tickets.slice();
-  if(activeFilter === 'due_today') list = list.filter(t=> t.status==='call_later' && t.callbackDate===today);
+  if(activeFilter === 'due_today') list = list.filter(t=> t.callbackDate===today);
   else if(activeFilter !== 'all') list = list.filter(t=>t.status===activeFilter);
   if(searchTerm.trim()){
     const q = searchTerm.trim().toLowerCase();
