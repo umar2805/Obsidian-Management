@@ -1056,7 +1056,7 @@ function render(){
   else if(activeFilter !== 'all') list = list.filter(t=>t.status===activeFilter);
   if(searchTerm.trim()){
     const q = searchTerm.trim().toLowerCase();
-    list = list.filter(t=> t.name.toLowerCase().includes(q));
+    list = list.filter(t=> t.name.toLowerCase().startsWith(q));
   }
   list.sort((a,b)=> a.name.localeCompare(b.name));
 
