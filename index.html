@@ -692,6 +692,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
   import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+  import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyDcLhLYrbY82fB3bc9eWMmhfgq3FZTofM",
@@ -704,12 +705,29 @@
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
+  const auth = getAuth(app);
 
   // Expose a small bridge so the rest of the app (plain script below) can use Firestore
   // without needing to be a module itself. There's no single fixed trackerRef anymore —
   // each city gets its own doc, so the plain script builds the ref it needs via `doc`.
   window.__firestore = { db, doc, getDoc, setDoc, onSnapshot };
-  window.dispatchEvent(new Event('firestore-ready'));
+
+  // Anonymous sign-in — no login screen, no password for the person using the app,
+  // but it gives every request a real request.auth.uid, which lets the Firestore
+  // security rules require "signed in" instead of being wide open to anyone who
+  // finds the URL and the (necessarily public, for a static site) API key.
+  // The rest of the app doesn't start until this resolves, so nothing ever tries
+  // to read/write before there's a valid auth token attached to the request.
+  onAuthStateChanged(auth, (user)=>{
+    if(user){
+      window.__firestoreReady = true;
+      window.dispatchEvent(new Event('firestore-ready'));
+    }
+  });
+  signInAnonymously(auth).catch(err=>{
+    console.error('Anonymous sign-in failed', err);
+    document.body.innerHTML = '<p style="color:#e8a99a;font-family:sans-serif;padding:40px;text-align:center;">Couldn\'t connect — check your internet connection and reload.</p>';
+  });
 </script>
 </head>
 <body>
@@ -722,6 +740,9 @@
   <div id="countryPickerArea">
     <div class="city-grid" id="countryGrid"></div>
     <button class="add-city-card" id="btnAddCountry">+ Add a country</button>
+  </div>
+  <div style="text-align:center;margin-top:26px;">
+    <button class="btn ghost" id="btnExportAll" title="Download every restaurant across every country and city as one CSV file">Download full backup (CSV)</button>
   </div>
 </div>
 
@@ -761,6 +782,7 @@
     <input type="text" id="search" placeholder="Search restaurant name…">
     <button class="btn gold" id="btnAdd">+ Add</button>
     <button class="btn ghost" id="btnBulk">Bulk paste</button>
+    <button class="btn ghost" id="btnExportBoard" title="Download this board as a CSV file">Export CSV</button>
   </div>
 
   <div class="panel" id="panelAdd">
@@ -1266,6 +1288,94 @@ function escapeHtml(s){
   return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 function escapeAttr(s){ return escapeHtml(s); }
+
+// --- CSV export / backup ---------------------------------------------------
+// A single restaurant's name, phone, or notes could contain a comma, quote,
+// or newline — any of those breaks a naive CSV if not escaped properly, so
+// every field is always wrapped in quotes with internal quotes doubled,
+// which is the standard CSV escaping rule spreadsheet apps expect.
+function csvField(value){
+  const s = (value===null || value===undefined) ? '' : String(value);
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+function toCsv(headers, rows){
+  const lines = [headers.map(csvField).join(',')];
+  rows.forEach(row=> lines.push(row.map(csvField).join(',')));
+  return lines.join('\r\n');
+}
+function downloadCsv(filename, csvString){
+  // Prepend a UTF-8 BOM so accented characters (café, Ré, etc.) display
+  // correctly when the file is opened in Excel, not just in text editors.
+  const blob = new Blob(['\uFEFF' + csvString], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function ticketToRow(t, extraCols){
+  const statusLabel = (STATUSES.find(s=>s.key===t.status) || {}).label || t.status;
+  return [...extraCols, t.name, t.phone||'', statusLabel, t.callbackDate||'', t.notes||'',
+    t.updatedAt ? new Date(t.updatedAt).toLocaleString() : ''];
+}
+
+document.getElementById('btnExportBoard').onclick = ()=>{
+  const csv = toCsv(
+    ['Name','Phone','Status','Callback date','Notes','Last updated'],
+    tickets.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(t=> ticketToRow(t, []))
+  );
+  const cityLabel = (document.getElementById('cityTitle').textContent || 'board').trim();
+  downloadCsv(`${cityLabel.replace(/[^\w\- ]+/g,'')} — restaurants.csv`, csv);
+};
+
+document.getElementById('btnExportAll').onclick = async (e)=>{
+  const btn = e.currentTarget;
+  const originalText = btn.textContent;
+  btn.textContent = 'Preparing backup…';
+  btn.disabled = true;
+  try{
+    const { db, doc, getDoc } = window.__firestore;
+    const [countries, cities] = await Promise.all([getCountriesList(), getCitiesList()]);
+    const countryNameById = Object.fromEntries(countries.map(c=>[c.id, c.name]));
+
+    // Fetch every city's board in parallel — with 260+ restaurants across
+    // several cities this is still just one request per city, not per row.
+    const perCity = await Promise.all(cities.map(async c=>{
+      try{
+        const snap = await getDoc(doc(db, 'tracker', c.id));
+        const cTickets = (snap.exists() && snap.data().data) ? JSON.parse(snap.data().data) : [];
+        return { city: c, tickets: cTickets };
+      }catch(err){
+        console.error('Backup: failed to load city', c.id, err);
+        return { city: c, tickets: [] };
+      }
+    }));
+
+    const rows = [];
+    perCity.forEach(({city, tickets: cTickets})=>{
+      const countryName = countryNameById[city.countryId] || '';
+      cTickets.slice().sort((a,b)=>a.name.localeCompare(b.name)).forEach(t=>{
+        rows.push(ticketToRow(t, [countryName, city.name]));
+      });
+    });
+
+    const csv = toCsv(
+      ['Country','City','Name','Phone','Status','Callback date','Notes','Last updated'],
+      rows
+    );
+    const stamp = new Date().toISOString().slice(0,10);
+    downloadCsv(`Ledger full backup — ${stamp}.csv`, csv);
+  }catch(err){
+    console.error('Full backup failed', err);
+    alert("Couldn't build the backup — check your connection and try again.");
+  }finally{
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
+};
 
 document.getElementById('search').addEventListener('input', e=>{
   searchTerm = e.target.value;
@@ -1880,7 +1990,7 @@ async function initApp(){
   router();
 }
 
-if(window.__firestore){
+if(window.__firestoreReady){
   initApp();
 }else{
   window.addEventListener('firestore-ready', initApp);
