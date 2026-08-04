@@ -278,6 +278,11 @@
     padding-right:64px;
     line-height:1.25;
     color:var(--ink);
+    min-height:calc(18px * 1.25 * 2);
+    display:-webkit-box;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
   }
   .ticket .name::after{
     content:"";
