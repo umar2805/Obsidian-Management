@@ -163,7 +163,7 @@
     margin-bottom:16px;
     flex-wrap:wrap;
   }
-  input[type=text], textarea{
+  input[type=text], input[type=tel], textarea{
     background:var(--parchment);
     color:var(--ink);
     border:1px solid #d9c9a3;
@@ -173,7 +173,7 @@
     font-family:inherit;
     box-shadow:inset 0 1px 3px rgba(0,0,0,0.15);
   }
-  input[type=text]:focus, textarea:focus{outline:none;border-color:var(--gold);box-shadow:inset 0 1px 3px rgba(0,0,0,0.15), 0 0 0 3px rgba(201,162,39,0.25);}
+  input[type=text]:focus, input[type=tel]:focus, textarea:focus{outline:none;border-color:var(--gold);box-shadow:inset 0 1px 3px rgba(0,0,0,0.15), 0 0 0 3px rgba(201,162,39,0.25);}
   #search{flex:1;min-width:160px;}
   button{
     cursor:pointer;
@@ -252,7 +252,7 @@
     color:var(--ink);
   }
   .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
-  .row input[type=text]{flex:1;min-width:140px;}
+  .row input[type=text], .row input[type=tel]{flex:1;min-width:140px;}
   textarea{width:100%;min-height:90px;resize:vertical;}
   .panel-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;}
   .hint{font-size:12px;color:var(--ink-soft);margin:6px 0 12px;line-height:1.6;}
@@ -331,6 +331,21 @@
     max-height:32px;
     overflow:hidden;
   }
+  .ticket .phone-line{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    font-size:12px;
+    color:var(--gold-dim);
+    margin-top:6px;
+    text-decoration:none;
+    border-bottom:1px dotted var(--gold-dim);
+  }
+  .ticket .phone-line::before{
+    content:"☎";
+    font-size:11px;
+  }
+  .ticket .phone-line:hover{color:var(--ink);border-bottom-color:var(--ink);}
 
   .stamp{
     position:absolute;
@@ -841,6 +856,9 @@
     <div class="row">
       <input type="text" id="modalName" placeholder="Name" style="width:100%;">
     </div>
+    <div class="row">
+      <input type="tel" id="modalPhone" placeholder="Phone number (optional)" style="width:100%;">
+    </div>
     <div class="callback-row">
       <label for="modalCallback">Callback date</label>
       <input type="date" id="modalCallback">
@@ -971,10 +989,12 @@ function openModal(id){
   document.getElementById('detailModal').classList.add('open');
 }
 function closeModal(){
-  // Commit whatever's in the notes box before closing, in case the person didn't blur it first.
+  // Commit whatever's in the notes/phone boxes before closing, in case the person didn't blur them first.
   if(currentModalId){
     const notesEl = document.getElementById('modalNotes');
     if(notesEl) updateField(currentModalId, 'notes', notesEl.value);
+    const phoneEl = document.getElementById('modalPhone');
+    if(phoneEl) updateField(currentModalId, 'phone', phoneEl.value.trim());
   }
   currentModalId = null;
   document.getElementById('detailModal').classList.remove('open');
@@ -987,6 +1007,7 @@ function populateModal(id){
   if(!t) return;
   document.getElementById('modalTitle').textContent = t.name;
   document.getElementById('modalName').value = t.name;
+  document.getElementById('modalPhone').value = t.phone || '';
   document.getElementById('modalCallback').value = t.callbackDate || '';
   document.getElementById('modalNotes').value = t.notes || '';
   document.getElementById('modalChips').innerHTML = QUICK_TAGS.map(tag=>
@@ -1134,6 +1155,7 @@ function addTicket(name, notes){
     id: uid(),
     name: name.trim(),
     notes: (notes||'').trim(),
+    phone: '',
     status: 'not_called',
     updatedAt: Date.now(),
     claimedBy: null,
@@ -1227,6 +1249,7 @@ function renderTicket(t){
   <div class="ticket" id="card-${t.id}">
     <div class="stamp ${t.status}">${STAMP_TEXT[t.status]}</div>
     <div class="name"><span class="name-text">${escapeHtml(t.name)}</span></div>
+    ${t.phone ? `<a class="phone-line" href="tel:${escapeAttr(t.phone.replace(/[^\d+]/g,''))}">${escapeHtml(t.phone)}</a>` : ''}
     ${t.notes ? `<div class="notes-preview">${escapeHtml(t.notes)}</div>` : ''}
     <div class="claim-row">${claimHtml}</div>
     <div class="action-row">
@@ -1400,6 +1423,9 @@ document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && detailModal.c
 
 document.getElementById('modalName').addEventListener('blur', e=>{
   if(currentModalId && e.target.value.trim()) updateField(currentModalId, 'name', e.target.value);
+});
+document.getElementById('modalPhone').addEventListener('blur', e=>{
+  if(currentModalId) updateField(currentModalId, 'phone', e.target.value.trim());
 });
 document.getElementById('modalCallback').addEventListener('change', e=>{
   if(currentModalId) updateField(currentModalId, 'callbackDate', e.target.value);
