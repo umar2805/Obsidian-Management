@@ -508,6 +508,79 @@
     font-size:18px;
     color:var(--ink);
   }
+
+  /* city picker */
+  .back-link{
+    display:inline-block;
+    color:#a8977c;
+    font-size:12px;
+    text-decoration:none;
+    margin-bottom:14px;
+    letter-spacing:0.04em;
+  }
+  .back-link:hover{color:var(--gold-soft);}
+  .combined-summary{
+    display:flex;
+    justify-content:center;
+    gap:0;
+    flex-wrap:wrap;
+    margin:18px 0 30px;
+  }
+  .city-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+    gap:14px;
+    margin-bottom:22px;
+  }
+  .city-card{
+    background:linear-gradient(180deg, var(--parchment) 0%, var(--parchment-shade) 100%);
+    color:var(--ink);
+    border-radius:2px;
+    padding:20px;
+    text-align:left;
+    box-shadow:0 6px 16px rgba(0,0,0,0.3);
+    border:1px solid rgba(0,0,0,0.06);
+    transition:transform .15s ease, box-shadow .15s ease;
+    cursor:pointer;
+    width:100%;
+  }
+  .city-card:hover{
+    transform:translateY(-2px);
+    box-shadow:0 10px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(201,162,39,0.3);
+  }
+  .city-card .city-name{
+    font-family:Georgia,serif;
+    font-weight:700;
+    font-size:19px;
+    margin-bottom:8px;
+  }
+  .city-card .city-stats{
+    font-size:12px;
+    color:var(--ink-soft);
+  }
+  .add-city-card{
+    background:transparent;
+    color:#a8977c;
+    border:1px dashed var(--gold-dim);
+    border-radius:2px;
+    padding:20px;
+    text-align:center;
+    cursor:pointer;
+    font-size:13px;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    min-height:80px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:100%;
+  }
+  .add-city-card:hover{color:var(--gold-soft);border-color:var(--gold-soft);background:rgba(201,162,39,0.06);}
+  .picker-empty{
+    text-align:center;
+    padding:50px 20px;
+    color:#8f8064;
+  }
 </style>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
@@ -524,18 +597,31 @@
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
-  const trackerRef = doc(db, "tracker", "shared");
 
   // Expose a small bridge so the rest of the app (plain script below) can use Firestore
-  // without needing to be a module itself.
-  window.__firestore = { db, trackerRef, getDoc, setDoc, onSnapshot };
+  // without needing to be a module itself. There's no single fixed trackerRef anymore —
+  // each city gets its own doc, so the plain script builds the ref it needs via `doc`.
+  window.__firestore = { db, doc, getDoc, setDoc, onSnapshot };
   window.dispatchEvent(new Event('firestore-ready'));
 </script>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap" id="pickerView" style="display:none;">
   <header>
     <h1 class="serif">The Ledger</h1>
+    <p class="tagline">Pick a city to open its ledger.</p>
+    <div class="nameplate" id="combinedSummary"></div>
+  </header>
+  <div id="pickerArea">
+    <div class="city-grid" id="cityGrid"></div>
+    <button class="add-city-card" id="btnAddCity">+ Add a city</button>
+  </div>
+</div>
+
+<div class="wrap" id="boardView" style="display:none;">
+  <header>
+    <a href="#/" class="back-link">&larr; Cities</a>
+    <h1 class="serif" id="cityTitle">The Ledger</h1>
     <p class="tagline">Every restaurant you've pitched, kept in perfect order.</p>
     <div class="nameplate">
       <div class="stat"><b id="statTotal">0</b><small>Total</small></div>
@@ -588,6 +674,21 @@
   <div id="listArea"></div>
 </div>
 
+<div class="modal-overlay" id="addCityModal">
+  <div class="modal-box">
+    <button class="modal-close" id="addCityClose" aria-label="Close">&times;</button>
+    <h3>Name your new city</h3>
+    <div class="row">
+      <input type="text" id="fCityName" placeholder="e.g. Porto" style="width:100%;">
+    </div>
+    <p id="fCityNameError" style="display:none;color:var(--wax);font-size:12px;margin:-4px 0 8px;">Give it a name first.</p>
+    <div class="panel-actions">
+      <button class="btn ghost" id="cancelAddCity" style="color:var(--ink);border-color:#cfc6ae;">Cancel</button>
+      <button class="btn gold" id="saveAddCity">Create city</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="detailModal">
   <div class="modal-box">
     <button class="modal-close" id="modalClose" aria-label="Close">&times;</button>
@@ -637,6 +738,7 @@ let activeFilter = 'all';
 let searchTerm = '';
 let saveTimer = null;
 let currentModalId = null; // which ticket's detail modal is currently open, if any
+let currentCityId = null;  // which city's board is currently open, if any
 let callerName = '';
 try{ callerName = localStorage.getItem('ledger_caller_name') || ''; }catch(e){ /* storage unavailable, fine */ }
 
@@ -749,10 +851,12 @@ function populateModal(id){
 }
 
 let isApplyingRemoteUpdate = false;
+let trackerRef = null;       // current city's Firestore doc ref — set by showBoard()
+let unsubscribeSnapshot = null; // stop-listening handle for the previous city, if any
 
 async function loadTickets(){
   try{
-    const { getDoc, trackerRef } = window.__firestore;
+    const { getDoc } = window.__firestore;
     const snap = await getDoc(trackerRef);
     tickets = snap.exists() && snap.data().data ? JSON.parse(snap.data().data) : [];
   }catch(e){
@@ -764,11 +868,18 @@ async function loadTickets(){
 }
 
 function subscribeToRemoteChanges(){
-  const { onSnapshot, trackerRef } = window.__firestore;
-  onSnapshot(trackerRef, (snap)=>{
+  // Drop any listener from a previously open city before attaching a new one —
+  // otherwise switching cities leaves a stale subscription overwriting `tickets`
+  // with the old city's data in the background.
+  if(unsubscribeSnapshot){ unsubscribeSnapshot(); unsubscribeSnapshot = null; }
+  const { onSnapshot } = window.__firestore;
+  const refAtSubscribeTime = trackerRef;
+  unsubscribeSnapshot = onSnapshot(refAtSubscribeTime, (snap)=>{
     // Ignore the echo of our own pending write — we already updated locally.
     if(snap.metadata.hasPendingWrites) return;
     if(!snap.exists()) return;
+    // Guard against a late callback landing after we've already switched cities.
+    if(trackerRef !== refAtSubscribeTime) return;
     const raw = snap.data().data;
     tickets = raw ? JSON.parse(raw) : [];
     render();
@@ -813,7 +924,7 @@ function showSaveStatus(kind){
 
 async function attemptSave(attempt){
   try{
-    const { setDoc, trackerRef } = window.__firestore;
+    const { setDoc } = window.__firestore;
     await setDoc(trackerRef, { data: JSON.stringify(tickets), updatedAt: Date.now() });
     showSaveStatus('saved');
   }catch(e){
@@ -1068,10 +1179,195 @@ document.getElementById('modalDelYes').onclick = ()=>{
 
 renderIdentityBar();
 
-if(window.__firestore){
+// ---- multi-city routing ----
+
+function slugify(name){
+  let s = name.trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents (Lisboa -> lisboa, not l-sboa)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return s || 'city';
+}
+
+async function ensureCitiesAndMigrate(){
+  const { db, doc, getDoc, setDoc } = window.__firestore;
+  const citiesRef = doc(db, 'tracker', '_cities');
+  const snap = await getDoc(citiesRef);
+  if(snap.exists() && Array.isArray(snap.data().list) && snap.data().list.length){
+    return; // cities list already set up, nothing to migrate
+  }
+  // No cities list yet — check for the old single-shared-doc data and fold it in as
+  // "Lisbon" so nothing gets lost or has to be re-entered.
+  const legacyRef = doc(db, 'tracker', 'shared');
+  const legacySnap = await getDoc(legacyRef);
+  if(legacySnap.exists() && legacySnap.data().data){
+    const lisbonRef = doc(db, 'tracker', 'lisbon');
+    const lisbonSnap = await getDoc(lisbonRef);
+    if(!lisbonSnap.exists()){
+      await setDoc(lisbonRef, { data: legacySnap.data().data, updatedAt: Date.now() });
+    }
+    await setDoc(citiesRef, { list: [{ id:'lisbon', name:'Lisbon', createdAt: Date.now() }] });
+  } else {
+    await setDoc(citiesRef, { list: [] });
+  }
+}
+
+async function getCitiesList(){
+  const { db, doc, getDoc } = window.__firestore;
+  const snap = await getDoc(doc(db, 'tracker', '_cities'));
+  return (snap.exists() && Array.isArray(snap.data().list)) ? snap.data().list : [];
+}
+
+async function addCity(name){
+  const { db, doc, getDoc, setDoc } = window.__firestore;
+  const list = await getCitiesList();
+  const existingIds = new Set(list.map(c=>c.id));
+  let id = slugify(name);
+  let uniqueId = id, suffix = 2;
+  while(existingIds.has(uniqueId)){ uniqueId = id + '-' + suffix; suffix++; }
+  id = uniqueId;
+
+  const cityRef = doc(db, 'tracker', id);
+  const citySnap = await getDoc(cityRef);
+  if(!citySnap.exists()){
+    await setDoc(cityRef, { data: JSON.stringify([]), updatedAt: Date.now() });
+  }
+  await setDoc(doc(db, 'tracker', '_cities'), { list: [...list, { id, name: name.trim(), createdAt: Date.now() }] });
+  return id;
+}
+
+async function renderPicker(){
+  const cityGrid = document.getElementById('cityGrid');
+  const summaryEl = document.getElementById('combinedSummary');
+  cityGrid.innerHTML = `<div class="picker-empty">Loading cities…</div>`;
+  summaryEl.innerHTML = '';
+
+  const { db, doc, getDoc } = window.__firestore;
+  const list = await getCitiesList();
+
+  if(list.length === 0){
+    cityGrid.innerHTML = `<div class="picker-empty">No cities yet — add your first one below.</div>`;
+    return;
+  }
+
+  // Show the cards right away with just names, so the page isn't blank while counts load.
+  cityGrid.innerHTML = list.map(c=> `
+    <button class="city-card" data-city="${escapeAttr(c.id)}">
+      <div class="city-name">${escapeHtml(c.name)}</div>
+      <div class="city-stats" id="cityStats-${escapeAttr(c.id)}">Loading…</div>
+    </button>
+  `).join('');
+  cityGrid.querySelectorAll('.city-card').forEach(btn=>{
+    btn.onclick = ()=>{ location.hash = '#/' + btn.dataset.city; };
+  });
+
+  // Combined total is just summed counts per city, read from each city's doc —
+  // never a merged ticket list, so restaurants from different cities stay apart.
+  // Fetched in parallel (not one city at a time) so this doesn't get slower as
+  // more cities get added.
+  const results = await Promise.all(list.map(async c=>{
+    let total = 0, called = 0, today = 0;
+    try{
+      const cSnap = await getDoc(doc(db, 'tracker', c.id));
+      const cTickets = (cSnap.exists() && cSnap.data().data) ? JSON.parse(cSnap.data().data) : [];
+      total = cTickets.length;
+      called = cTickets.filter(t=>t.status!=='not_called').length;
+      today = cTickets.filter(t=>t.status!=='not_called' && isSameLocalDay(t.updatedAt)).length;
+    }catch(e){
+      console.error('Failed to load counts for city', c.id, e);
+    }
+    return { id: c.id, total, called, today };
+  }));
+
+  let combinedTotal = 0, combinedCalled = 0, combinedToday = 0;
+  results.forEach(r=>{
+    combinedTotal += r.total; combinedCalled += r.called; combinedToday += r.today;
+    const statsEl = document.getElementById('cityStats-'+r.id);
+    if(statsEl) statsEl.textContent = `${r.total} total · ${r.called} called · ${r.today} today`;
+  });
+
+  summaryEl.innerHTML = `
+    <div class="stat"><b>${combinedTotal}</b><small>Total</small></div>
+    <div class="stat"><b>${combinedCalled}</b><small>Called</small></div>
+    <div class="stat"><b>${combinedToday}</b><small>Today</small></div>
+  `;
+}
+
+function showPicker(){
+  currentCityId = null;
+  document.getElementById('boardView').style.display = 'none';
+  document.getElementById('pickerView').style.display = 'block';
+  renderPicker();
+}
+
+function showBoard(cityId){
+  currentCityId = cityId;
+  trackerRef = window.__firestore.doc(window.__firestore.db, 'tracker', cityId);
+  document.getElementById('pickerView').style.display = 'none';
+  document.getElementById('boardView').style.display = 'block';
+  // Reset per-city UI state so switching cities doesn't carry over a stale filter/search.
+  activeFilter = 'all';
+  searchTerm = '';
+  document.getElementById('search').value = '';
+  document.getElementById('cityTitle').textContent = 'The Ledger';
+  getCitiesList().then(list=>{
+    const c = list.find(x=>x.id===cityId);
+    if(c) document.getElementById('cityTitle').textContent = c.name;
+  });
   loadTickets();
+}
+
+function router(){
+  const m = location.hash.match(/^#\/(.+)$/);
+  if(m && m[1]) showBoard(decodeURIComponent(m[1]));
+  else showPicker();
+}
+window.addEventListener('hashchange', router);
+
+// ---- add-city modal ----
+const addCityModal = document.getElementById('addCityModal');
+document.getElementById('btnAddCity').onclick = ()=>{
+  document.getElementById('fCityName').value = '';
+  document.getElementById('fCityNameError').textContent = 'Give it a name first.';
+  document.getElementById('fCityNameError').style.display = 'none';
+  addCityModal.classList.add('open');
+};
+document.getElementById('addCityClose').onclick = ()=> addCityModal.classList.remove('open');
+document.getElementById('cancelAddCity').onclick = ()=> addCityModal.classList.remove('open');
+addCityModal.addEventListener('click', e=>{ if(e.target === addCityModal) addCityModal.classList.remove('open'); });
+document.getElementById('saveAddCity').onclick = async ()=>{
+  const name = document.getElementById('fCityName').value.trim();
+  const errEl = document.getElementById('fCityNameError');
+  if(!name){ errEl.textContent = 'Give it a name first.'; errEl.style.display = 'block'; return; }
+  errEl.style.display = 'none';
+  const btn = document.getElementById('saveAddCity');
+  btn.disabled = true;
+  try{
+    const id = await addCity(name);
+    addCityModal.classList.remove('open');
+    location.hash = '#/' + id;
+  }catch(e){
+    console.error('Failed to create city', e);
+    errEl.textContent = "Couldn't create that city — try again.";
+    errEl.style.display = 'block';
+  }finally{
+    btn.disabled = false;
+  }
+};
+
+async function initApp(){
+  try{
+    await ensureCitiesAndMigrate();
+  }catch(e){
+    console.error('City migration check failed', e);
+  }
+  router();
+}
+
+if(window.__firestore){
+  initApp();
 }else{
-  window.addEventListener('firestore-ready', loadTickets);
+  window.addEventListener('firestore-ready', initApp);
 }
 </script>
 </body>
