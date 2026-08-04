@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Ledger — Call Tracker</title>
+<style>
+  :root{
+    --leather:#241512;
+    --leather-2:#2c1a16;
+    --leather-edge:#150c0a;
+    --gold:#c9a227;
+    --gold-soft:#e8c766;
+    --gold-dim:#8a6f2e;
+    --parchment:#f6ecd9;
+    --parchment-shade:#ece0c6;
+    --ink:#2a1f18;
+    --ink-soft:#7a6a56;
+    --wax:#7a2420;
+    --emerald:#1c5c48;
+    --slate:#55606b;
+    --brass:#a9762c;
+  }
+  *{box-sizing:border-box;}
+  @media (prefers-reduced-motion: reduce){
+    *{animation:none !important;transition:none !important;}
+  }
+  body{
+    margin:0;
+    background:
+      radial-gradient(ellipse at top, #2e1b17 0%, var(--leather) 45%, var(--leather-edge) 100%);
+    color:var(--parchment);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+    min-height:100vh;
+  }
+  .serif{
+    font-family:Georgia,"Iowan Old Style","Palatino Linotype","Book Antiqua",serif;
+  }
+  .small-caps{
+    font-variant:small-caps;
+    letter-spacing:0.08em;
+  }
+  .wrap{
+    max-width:980px;
+    margin:0 auto;
+    padding:32px 20px 90px;
+  }
+
+  /* header */
+  header{
+    text-align:center;
+    padding-bottom:22px;
+    margin-bottom:20px;
+  }
+  h1{
+    margin:0;
+    font-size:clamp(30px,6vw,46px);
+    font-weight:400;
+    letter-spacing:0.08em;
+    background:linear-gradient(180deg, var(--gold-soft) 0%, var(--gold) 55%, var(--gold-dim) 100%);
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+    text-shadow:0 1px 0 rgba(0,0,0,0.4);
+  }
+  .tagline{
+    margin:6px 0 0;
+    font-style:italic;
+    color:#c9b89a;
+    font-size:14px;
+    opacity:0.85;
+  }
+  .rule{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin:20px 0;
+  }
+  .rule::before, .rule::after{
+    content:"";
+    flex:1;
+    height:1px;
+    background:linear-gradient(90deg, transparent, var(--gold-dim), transparent);
+  }
+  .rule-mark{
+    width:6px;height:6px;
+    background:var(--gold);
+    transform:rotate(45deg);
+    opacity:0.8;
+  }
+
+  .nameplate{
+    display:flex;
+    justify-content:center;
+    gap:0;
+    margin-top:18px;
+    flex-wrap:wrap;
+  }
+  .stat{
+    padding:0 20px;
+    text-align:center;
+    border-right:1px solid rgba(201,162,39,0.25);
+  }
+  .stat:last-child{border-right:none;}
+  .stat b{
+    display:block;
+    font-size:22px;
+    font-family:Georgia,serif;
+    color:var(--gold-soft);
+  }
+  .stat small{
+    display:block;
+    color:#9a8a72;
+    font-size:9px;
+    text-transform:uppercase;
+    letter-spacing:0.14em;
+    margin-top:2px;
+  }
+
+  #saveStatus{
+    display:none;
+    font-size:12px;
+    padding:10px 14px;
+    border-radius:2px;
+    margin-bottom:16px;
+    text-align:center;
+    letter-spacing:0.02em;
+    border:1px solid transparent;
+  }
+
+  /* controls */
+  .controls{
+    display:flex;
+    gap:10px;
+    margin-bottom:16px;
+    flex-wrap:wrap;
+  }
+  input[type=text], textarea{
+    background:var(--parchment);
+    color:var(--ink);
+    border:1px solid #d9c9a3;
+    border-radius:2px;
+    padding:12px 14px;
+    font-size:14px;
+    font-family:inherit;
+    box-shadow:inset 0 1px 3px rgba(0,0,0,0.15);
+  }
+  input[type=text]:focus, textarea:focus{outline:none;border-color:var(--gold);box-shadow:inset 0 1px 3px rgba(0,0,0,0.15), 0 0 0 3px rgba(201,162,39,0.25);}
+  #search{flex:1;min-width:160px;}
+  button{
+    cursor:pointer;
+    border:none;
+    font-family:inherit;
+    font-size:13px;
+  }
+  .btn{
+    padding:12px 20px;
+    border-radius:2px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    font-size:12px;
+    transition:transform .12s ease, box-shadow .12s ease;
+  }
+  .btn:active{transform:scale(0.97);}
+  .btn.gold{
+    background:linear-gradient(180deg, var(--gold-soft), var(--brass));
+    color:#2a1c0a;
+    box-shadow:0 2px 6px rgba(0,0,0,0.35);
+  }
+  .btn.gold:hover{box-shadow:0 3px 10px rgba(201,162,39,0.35);}
+  .btn.ghost{
+    background:transparent;
+    color:var(--gold-soft);
+    border:1px solid var(--gold-dim);
+  }
+  .btn.ghost:hover{border-color:var(--gold-soft);background:rgba(201,162,39,0.08);}
+  .btn:focus-visible, button:focus-visible, a:focus-visible{outline:2px solid var(--gold-soft);outline-offset:2px;}
+
+  /* filter pills */
+  .pills{
+    display:flex;
+    gap:4px;
+    overflow-x:auto;
+    padding-bottom:2px;
+    margin-bottom:18px;
+    border-bottom:1px solid rgba(201,162,39,0.2);
+  }
+  .pill{
+    background:transparent;
+    color:#a8977c;
+    padding:9px 14px 11px;
+    font-size:11px;
+    white-space:nowrap;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    border-bottom:2px solid transparent;
+    margin-bottom:-1px;
+  }
+  .pill b{margin-left:6px;font-family:Georgia,serif;font-weight:700;font-size:12px;}
+  .pill.active{
+    color:var(--gold-soft);
+    border-bottom-color:var(--gold);
+  }
+  .pill:hover:not(.active){color:var(--parchment);}
+
+  /* panels */
+  .panel{
+    background:var(--parchment);
+    color:var(--ink);
+    border-radius:2px;
+    padding:20px;
+    margin-bottom:18px;
+    display:none;
+    border-left:3px solid var(--gold);
+    box-shadow:0 8px 24px rgba(0,0,0,0.35);
+  }
+  .panel.open{display:block;}
+  .panel h3{
+    margin:0 0 12px;
+    font-family:Georgia,serif;
+    font-style:italic;
+    font-size:17px;
+    color:var(--ink);
+  }
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+  .row input[type=text]{flex:1;min-width:140px;}
+  textarea{width:100%;min-height:90px;resize:vertical;}
+  .panel-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;}
+  .hint{font-size:12px;color:var(--ink-soft);margin:6px 0 12px;line-height:1.6;}
+
+  /* empty state */
+  .empty{
+    text-align:center;
+    padding:70px 20px;
+    color:#8f8064;
+  }
+  .empty .ornament{
+    width:8px;height:8px;background:var(--gold);
+    transform:rotate(45deg);
+    margin:0 auto 18px;
+  }
+  .empty b{
+    display:block;
+    color:var(--gold-soft);
+    font-family:Georgia,serif;
+    font-style:italic;
+    font-size:20px;
+    margin-bottom:8px;
+    font-weight:400;
+  }
+
+  /* tickets */
+  .grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(270px,1fr));
+    gap:14px;
+  }
+  .ticket{
+    background:linear-gradient(180deg, var(--parchment) 0%, var(--parchment-shade) 100%);
+    color:var(--ink);
+    border-radius:2px;
+    padding:18px 18px 14px;
+    position:relative;
+    box-shadow:0 6px 16px rgba(0,0,0,0.3);
+    transition:transform .15s ease, box-shadow .15s ease;
+    border:1px solid rgba(0,0,0,0.06);
+  }
+  .ticket:hover{
+    transform:translateY(-2px);
+    box-shadow:0 10px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(201,162,39,0.3);
+  }
+  .ticket .name{
+    font-family:Georgia,serif;
+    font-weight:700;
+    font-size:18px;
+    padding-right:64px;
+    line-height:1.25;
+    color:var(--ink);
+  }
+  .ticket .name::after{
+    content:"";
+    display:block;
+    width:34px;
+    height:2px;
+    background:var(--gold);
+    margin-top:6px;
+    opacity:0.7;
+  }
+  .ticket .notes-preview{
+    font-size:12px;
+    color:var(--ink-soft);
+    margin-top:8px;
+    font-style:italic;
+    max-height:32px;
+    overflow:hidden;
+  }
+
+  .stamp{
+    position:absolute;
+    top:14px;
+    right:14px;
+    width:58px;
+    height:58px;
+    border-radius:50%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    font-size:9px;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:0.03em;
+    line-height:1.15;
+    border:2px solid currentColor;
+    box-shadow:inset 0 0 0 3px rgba(255,255,255,0.5);
+  }
+  .stamp.not_called{color:#c2b596;border-style:dashed;background:transparent;box-shadow:none;}
+  .stamp.no_answer{color:#fff;background:var(--slate);}
+  .stamp.said_no{color:#fff;background:var(--wax);}
+  .stamp.call_later{color:#2a1c0a;background:linear-gradient(180deg,var(--gold-soft),var(--brass));}
+  .stamp.lead{color:#fff;background:var(--emerald);}
+  .stamp.converted{color:#fff;background:var(--emerald);box-shadow:inset 0 0 0 3px rgba(255,255,255,0.5), 0 0 0 2px var(--gold-soft);}
+
+  .action-row{
+    display:flex;
+    gap:6px;
+    flex-wrap:wrap;
+    margin-top:14px;
+    border-top:1px dashed #d9c9a3;
+    padding-top:12px;
+  }
+  .mini{
+    background:var(--ink);
+    color:var(--parchment);
+    padding:6px 8px;
+    font-size:10px;
+    border-radius:2px;
+    text-transform:uppercase;
+    letter-spacing:0.03em;
+    flex:1;
+    min-width:56px;
+    transition:background .12s ease;
+  }
+  .mini:hover{background:#3a2c20;}
+  .mini.active-red{background:var(--wax);}
+  .mini.active-amber{background:var(--brass);color:#fff;}
+  .mini.active-green{background:var(--emerald);}
+  .mini.active-steel{background:var(--slate);}
+
+  .toggle-row{display:flex;justify-content:space-between;align-items:center;margin-top:10px;}
+  .link-btn{
+    background:none;border:none;color:var(--ink-soft);font-size:11px;
+    text-decoration:underline;padding:2px 4px;font-style:italic;
+  }
+  .link-btn:hover{color:var(--ink);}
+  .detail{
+    margin-top:12px;
+    display:none;
+  }
+  .detail.open{display:block;}
+  .detail textarea{width:100%;font-size:12px;min-height:60px;}
+  .detail .row input[type=text]{font-size:13px;}
+  .del{color:var(--wax);}
+
+  @media (max-width:480px){
+    .nameplate{gap:0;}
+    .stat{padding:0 14px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 class="serif">The Ledger</h1>
+    <p class="tagline">Every restaurant you've pitched, kept in perfect order.</p>
+    <div class="nameplate">
+      <div class="stat"><b id="statTotal">0</b><small>Total</small></div>
+      <div class="stat"><b id="statCalled">0</b><small>Called</small></div>
+      <div class="stat"><b id="statLeads">0</b><small>Leads</small></div>
+      <div class="stat"><b id="statSold">0</b><small>Sold</small></div>
+    </div>
+    <div class="rule"><span class="rule-mark"></span></div>
+  </header>
+
+  <div id="saveStatus"></div>
+
+  <div class="controls">
+    <input type="text" id="search" placeholder="Search restaurant name…">
+    <button class="btn gold" id="btnAdd">+ Add</button>
+    <button class="btn ghost" id="btnBulk">Bulk paste</button>
+  </div>
+
+  <div class="panel" id="panelAdd">
+    <h3>A new entry</h3>
+    <div class="row">
+      <input type="text" id="fName" placeholder="Restaurant name" style="width:100%;">
+    </div>
+    <p id="fNameError" style="display:none;color:var(--wax);font-size:12px;margin:-4px 0 8px;">Give it a name first.</p>
+    <textarea id="fNotes" placeholder="Notes (optional)"></textarea>
+    <div class="panel-actions">
+      <button class="btn ghost" id="cancelAdd" style="color:var(--ink);border-color:#cfc6ae;">Cancel</button>
+      <button class="btn gold" id="saveAdd">Save entry</button>
+    </div>
+  </div>
+
+  <div class="panel" id="panelBulk">
+    <h3>Bulk paste from your Maps list</h3>
+    <p class="hint">One restaurant name per line. Example:<br>
+    Cantina do Tejo<br>
+    Café Belem<br>
+    A Tasquinha</p>
+    <textarea id="fBulk" placeholder="Paste your list here…" style="min-height:140px;"></textarea>
+    <p id="bulkCount" style="font-size:12px;color:var(--ink-soft);margin:6px 0 0;">0 restaurants detected</p>
+    <div class="panel-actions">
+      <button class="btn ghost" id="cancelBulk" style="color:var(--ink);border-color:#cfc6ae;">Cancel</button>
+      <button class="btn gold" id="saveBulk">Add all</button>
+    </div>
+  </div>
+
+  <div class="pills" id="pills"></div>
+
+  <div id="listArea"></div>
+</div>
+
+<script>
+const STATUSES = [
+  {key:'not_called', label:'To call'},
+  {key:'no_answer', label:'No answer'},
+  {key:'call_later', label:'Call back'},
+  {key:'lead', label:'Lead'},
+  {key:'said_no', label:'Declined'},
+  {key:'converted', label:'Sold'},
+];
+const STAMP_TEXT = {
+  not_called:'To call', no_answer:'No answer', call_later:'Call back',
+  lead:'Lead', said_no:'Declined', converted:'Sold'
+};
+const MINI_CLASS = {
+  no_answer:'active-steel', said_no:'active-red', call_later:'active-amber',
+  lead:'active-green', converted:'active-green'
+};
+
+let tickets = [];
+let activeFilter = 'all';
+let searchTerm = '';
+let saveTimer = null;
+
+const listArea = document.getElementById('listArea');
+const pillsEl = document.getElementById('pills');
+
+function uid(){return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);}
+
+async function loadTickets(){
+  try{
+    const res = await window.storage.get('tickets', false);
+    tickets = res && res.value ? JSON.parse(res.value) : [];
+  }catch(e){
+    tickets = [];
+  }
+  render();
+}
+
+const statusEl = ()=> document.getElementById('saveStatus');
+
+function showSaveStatus(kind){
+  const el = statusEl();
+  if(!el) return;
+  if(kind==='saving'){
+    el.style.display='block';
+    el.style.background='rgba(201,162,39,0.12)';
+    el.style.border='1px solid rgba(201,162,39,0.3)';
+    el.style.color='var(--gold-soft)';
+    el.textContent='Saving…';
+  } else if(kind==='saved'){
+    el.style.background='rgba(28,92,72,0.18)';
+    el.style.border='1px solid rgba(28,92,72,0.4)';
+    el.style.color='#8fd9bd';
+    el.textContent='Saved ✓';
+    setTimeout(()=>{ if(el.textContent==='Saved ✓') el.style.display='none'; }, 1500);
+  } else if(kind==='failed'){
+    el.style.display='block';
+    el.style.background='rgba(122,36,32,0.18)';
+    el.style.border='1px solid rgba(122,36,32,0.4)';
+    el.style.color='#e8a99a';
+    el.textContent="Couldn't save — retrying… (don't close this tab yet)";
+  } else if(kind==='gaveup'){
+    el.style.display='block';
+    el.style.background='rgba(122,36,32,0.18)';
+    el.style.border='1px solid rgba(122,36,32,0.4)';
+    el.style.color='#e8a99a';
+    el.textContent='Still failing to save. Your changes are only in this tab right now — tap here to try again.';
+    el.style.cursor='pointer';
+    el.onclick = ()=>{ el.onclick=null; el.style.cursor='default'; scheduleSave(0); };
+  }
+}
+
+async function attemptSave(attempt){
+  try{
+    await window.storage.set('tickets', JSON.stringify(tickets), false);
+    showSaveStatus('saved');
+  }catch(e){
+    console.error('Save failed', e);
+    if(attempt < 3){
+      showSaveStatus('failed');
+      setTimeout(()=> attemptSave(attempt+1), 1000 * Math.pow(2, attempt));
+    }else{
+      showSaveStatus('gaveup');
+    }
+  }
+}
+
+function scheduleSave(delay){
+  clearTimeout(saveTimer);
+  showSaveStatus('saving');
+  saveTimer = setTimeout(()=> attemptSave(0), delay===0?0:350);
+}
+
+function setStatus(id, status){
+  const t = tickets.find(x=>x.id===id);
+  if(!t) return;
+  t.status = status;
+  t.updatedAt = Date.now();
+  scheduleSave();
+  render();
+}
+
+function updateField(id, field, value){
+  const t = tickets.find(x=>x.id===id);
+  if(!t) return;
+  t[field] = value;
+  t.updatedAt = Date.now();
+  scheduleSave();
+}
+
+function deleteTicket(id){
+  tickets = tickets.filter(x=>x.id!==id);
+  scheduleSave();
+  render();
+}
+
+function addTicket(name, notes){
+  tickets.push({
+    id: uid(),
+    name: name.trim(),
+    notes: (notes||'').trim(),
+    status: 'not_called',
+    updatedAt: Date.now()
+  });
+}
+
+function render(){
+  document.getElementById('statTotal').textContent = tickets.length;
+  document.getElementById('statCalled').textContent = tickets.filter(t=>t.status!=='not_called').length;
+  document.getElementById('statLeads').textContent = tickets.filter(t=>t.status==='lead').length;
+  document.getElementById('statSold').textContent = tickets.filter(t=>t.status==='converted').length;
+
+  const counts = {all: tickets.length};
+  STATUSES.forEach(s=> counts[s.key] = tickets.filter(t=>t.status===s.key).length);
+  let pillsHtml = `<button class="pill ${activeFilter==='all'?'active':''}" data-f="all">All<b>${counts.all}</b></button>`;
+  STATUSES.forEach(s=>{
+    pillsHtml += `<button class="pill ${activeFilter===s.key?'active':''}" data-f="${s.key}">${s.label}<b>${counts[s.key]}</b></button>`;
+  });
+  pillsEl.innerHTML = pillsHtml;
+  pillsEl.querySelectorAll('.pill').forEach(btn=>{
+    btn.onclick = ()=>{ activeFilter = btn.dataset.f; render(); };
+  });
+
+  let list = tickets.slice();
+  if(activeFilter !== 'all') list = list.filter(t=>t.status===activeFilter);
+  if(searchTerm.trim()){
+    const q = searchTerm.trim().toLowerCase();
+    list = list.filter(t=> t.name.toLowerCase().includes(q));
+  }
+  list.sort((a,b)=> a.name.localeCompare(b.name));
+
+  if(tickets.length === 0){
+    listArea.innerHTML = `<div class="empty"><div class="ornament"></div><b>Your ledger is empty</b>Add your first restaurant, or bulk-paste your whole list from Maps.</div>`;
+    return;
+  }
+  if(list.length === 0){
+    listArea.innerHTML = `<div class="empty"><div class="ornament"></div><b>No matches</b>Try a different search or filter.</div>`;
+    return;
+  }
+
+  listArea.innerHTML = `<div class="grid">${list.map(renderTicket).join('')}</div>`;
+
+  list.forEach(t=>{
+    const card = document.getElementById('card-'+t.id);
+    if(!card) return;
+    card.querySelectorAll('[data-status]').forEach(btn=>{
+      btn.onclick = ()=> setStatus(t.id, btn.dataset.status);
+    });
+    const toggleBtn = card.querySelector('.link-btn');
+    if(toggleBtn){
+      toggleBtn.onclick = ()=>{
+        const d = card.querySelector('.detail');
+        d.classList.toggle('open');
+        toggleBtn.textContent = d.classList.contains('open') ? 'Hide details' : 'Edit / notes';
+      };
+    }
+    const notesArea = card.querySelector('.notesInput');
+    if(notesArea) notesArea.onblur = ()=> updateField(t.id, 'notes', notesArea.value);
+    const nameInput = card.querySelector('.nameInput');
+    if(nameInput) nameInput.onblur = ()=> { if(nameInput.value.trim()){ updateField(t.id,'name',nameInput.value); render(); } };
+    const delBtn = card.querySelector('.del');
+    const delConfirm = card.querySelector('.del-confirm');
+    if(delBtn && delConfirm){
+      delBtn.onclick = ()=>{
+        delBtn.style.display='none';
+        delConfirm.style.display='inline';
+      };
+      const yesBtn = card.querySelector('.del-yes');
+      const noBtn = card.querySelector('.del-no');
+      if(yesBtn) yesBtn.onclick = ()=> deleteTicket(t.id);
+      if(noBtn) noBtn.onclick = ()=>{
+        delConfirm.style.display='none';
+        delBtn.style.display='inline';
+      };
+    }
+  });
+}
+
+function renderTicket(t){
+  const miniButtons = STATUSES.filter(s=>s.key!=='not_called').map(s=>{
+    const cls = t.status===s.key ? (MINI_CLASS[s.key]||'') : '';
+    return `<button class="mini ${cls}" data-status="${s.key}">${s.label}</button>`;
+  }).join('');
+  return `
+  <div class="ticket" id="card-${t.id}">
+    <div class="stamp ${t.status}">${STAMP_TEXT[t.status]}</div>
+    <div class="name">${escapeHtml(t.name)}</div>
+    ${t.notes ? `<div class="notes-preview">${escapeHtml(t.notes)}</div>` : ''}
+    <div class="action-row">
+      ${miniButtons}
+      <button class="mini" data-status="not_called">Reset</button>
+    </div>
+    <div class="toggle-row">
+      <button class="link-btn">Edit / notes</button>
+    </div>
+    <div class="detail">
+      <div class="row">
+        <input type="text" class="nameInput" value="${escapeAttr(t.name)}" placeholder="Name" style="width:100%;">
+      </div>
+      <textarea class="notesInput" placeholder="Notes from the call…">${escapeHtml(t.notes)}</textarea>
+      <div class="panel-actions delete-zone">
+        <button class="link-btn del">Delete entry</button>
+        <span class="del-confirm" style="display:none;">
+          Delete "${escapeHtml(t.name)}"?
+          <button class="link-btn del-yes" style="color:var(--wax);font-weight:700;">Yes, delete</button>
+          <button class="link-btn del-no">Cancel</button>
+        </span>
+      </div>
+    </div>
+  </div>`;
+}
+
+function escapeHtml(s){
+  return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escapeAttr(s){ return escapeHtml(s); }
+
+document.getElementById('search').addEventListener('input', e=>{
+  searchTerm = e.target.value;
+  render();
+});
+
+const panelAdd = document.getElementById('panelAdd');
+const panelBulk = document.getElementById('panelBulk');
+
+document.getElementById('btnAdd').onclick = ()=>{
+  panelBulk.classList.remove('open');
+  panelAdd.classList.toggle('open');
+};
+document.getElementById('btnBulk').onclick = ()=>{
+  panelAdd.classList.remove('open');
+  panelBulk.classList.toggle('open');
+};
+document.getElementById('cancelAdd').onclick = ()=>{
+  panelAdd.classList.remove('open');
+  document.getElementById('fName').value='';
+  document.getElementById('fNotes').value='';
+};
+document.getElementById('cancelBulk').onclick = ()=>{
+  panelBulk.classList.remove('open');
+  document.getElementById('fBulk').value='';
+  updateBulkCount();
+};
+document.getElementById('saveAdd').onclick = ()=>{
+  const name = document.getElementById('fName').value.trim();
+  const errEl = document.getElementById('fNameError');
+  if(!name){ errEl.style.display='block'; return; }
+  errEl.style.display='none';
+  addTicket(name, document.getElementById('fNotes').value);
+  scheduleSave();
+  document.getElementById('fName').value='';
+  document.getElementById('fNotes').value='';
+  panelAdd.classList.remove('open');
+  render();
+};
+function countBulkLines(){
+  const raw = document.getElementById('fBulk').value;
+  return raw.split('\n').map(l=>l.trim()).filter(Boolean).length;
+}
+function updateBulkCount(){
+  const n = countBulkLines();
+  document.getElementById('bulkCount').textContent = n + (n===1 ? ' restaurant detected' : ' restaurants detected');
+}
+document.getElementById('fBulk').addEventListener('input', updateBulkCount);
+
+document.getElementById('saveBulk').onclick = ()=>{
+  const raw = document.getElementById('fBulk').value;
+  const lines = raw.split('\n').map(l=>l.trim()).filter(Boolean);
+  lines.forEach(name=>{
+    if(name) addTicket(name, '');
+  });
+  scheduleSave();
+  document.getElementById('fBulk').value='';
+  updateBulkCount();
+  panelBulk.classList.remove('open');
+  render();
+};
+
+loadTickets();
+</script>
+</body>
+</html>
