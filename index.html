@@ -278,11 +278,13 @@
     padding-right:64px;
     line-height:1.25;
     color:var(--ink);
-    min-height:calc(18px * 1.25 * 2);
+  }
+  .ticket .name-text{
     display:-webkit-box;
     -webkit-line-clamp:2;
     -webkit-box-orient:vertical;
     overflow:hidden;
+    min-height:calc(18px * 1.25 * 2);
   }
   .ticket .name::after{
     content:"";
@@ -957,7 +959,7 @@ function renderTicket(t){
   return `
   <div class="ticket" id="card-${t.id}">
     <div class="stamp ${t.status}">${STAMP_TEXT[t.status]}</div>
-    <div class="name">${escapeHtml(t.name)}</div>
+    <div class="name"><span class="name-text">${escapeHtml(t.name)}</span></div>
     ${t.notes ? `<div class="notes-preview">${escapeHtml(t.notes)}</div>` : ''}
     <div class="claim-row">${claimHtml}</div>
     <div class="action-row">
