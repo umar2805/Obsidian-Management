@@ -567,7 +567,7 @@ let tickets = [];
 let activeFilter = 'all';
 let searchTerm = '';
 let saveTimer = null;
-let openDetailId = null; // remembers which ticket's detail panel is expanded across re-renders
+let openDetailIds = new Set(); // remembers which tickets' detail panels are expanded across re-renders, independently
 let callerName = '';
 try{ callerName = localStorage.getItem('ledger_caller_name') || ''; }catch(e){ /* storage unavailable, fine */ }
 
@@ -765,6 +765,7 @@ function updateField(id, field, value){
 
 function deleteTicket(id){
   tickets = tickets.filter(x=>x.id!==id);
+  openDetailIds.delete(id);
   scheduleSave();
   render();
 }
@@ -832,7 +833,7 @@ function render(){
     });
     const toggleBtn = card.querySelector('.link-btn:not(.del)');
     const detailEl = card.querySelector('.detail');
-    if(detailEl && openDetailId === t.id){
+    if(detailEl && openDetailIds.has(t.id)){
       detailEl.classList.add('open');
       if(toggleBtn) toggleBtn.textContent = 'Hide details ▴';
     }
@@ -841,7 +842,7 @@ function render(){
         const d = card.querySelector('.detail');
         d.classList.toggle('open');
         const isOpen = d.classList.contains('open');
-        openDetailId = isOpen ? t.id : null;
+        if(isOpen) openDetailIds.add(t.id); else openDetailIds.delete(t.id);
         toggleBtn.textContent = isOpen ? 'Hide details ▴' : 'Edit / notes ▾';
       };
     }
