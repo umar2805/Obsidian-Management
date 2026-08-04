@@ -119,13 +119,22 @@
 
   #saveStatus{
     display:none;
-    font-size:12px;
-    padding:10px 14px;
+    position:fixed;
+    top:16px;
+    left:20px;
+    z-index:50;
+    font-size:11px;
+    padding:9px 16px;
     border-radius:2px;
-    margin-bottom:16px;
     text-align:center;
     letter-spacing:0.02em;
     border:1px solid transparent;
+    background:var(--leather-2);
+    box-shadow:0 4px 12px rgba(0,0,0,0.35);
+    max-width:min(50vw, 320px);
+  }
+  @media (max-width:600px){
+    #saveStatus{top:10px;left:10px;padding:7px 12px;font-size:10px;max-width:60vw;}
   }
 
   /* controls */
