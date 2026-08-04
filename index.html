@@ -566,6 +566,7 @@ let tickets = [];
 let activeFilter = 'all';
 let searchTerm = '';
 let saveTimer = null;
+let openDetailId = null; // remembers which ticket's detail panel is expanded across re-renders
 let callerName = '';
 try{ callerName = localStorage.getItem('ledger_caller_name') || ''; }catch(e){ /* storage unavailable, fine */ }
 
@@ -820,12 +821,19 @@ function render(){
     card.querySelectorAll('[data-status]').forEach(btn=>{
       btn.onclick = ()=> setStatus(t.id, btn.dataset.status);
     });
-    const toggleBtn = card.querySelector('.link-btn');
+    const toggleBtn = card.querySelector('.link-btn:not(.del)');
+    const detailEl = card.querySelector('.detail');
+    if(detailEl && openDetailId === t.id){
+      detailEl.classList.add('open');
+      if(toggleBtn) toggleBtn.textContent = 'Hide details';
+    }
     if(toggleBtn){
       toggleBtn.onclick = ()=>{
         const d = card.querySelector('.detail');
         d.classList.toggle('open');
-        toggleBtn.textContent = d.classList.contains('open') ? 'Hide details' : 'Edit / notes';
+        const isOpen = d.classList.contains('open');
+        openDetailId = isOpen ? t.id : null;
+        toggleBtn.textContent = isOpen ? 'Hide details' : 'Edit / notes';
       };
     }
     const notesArea = card.querySelector('.notesInput');
