@@ -252,8 +252,10 @@
 
   /* tickets */
   .grid{
-    column-count:3;
-    column-gap:14px;
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(270px,1fr));
+    gap:14px;
+    align-items:start;
   }
   .ticket{
     background:linear-gradient(180deg, var(--parchment) 0%, var(--parchment-shade) 100%);
@@ -264,11 +266,6 @@
     box-shadow:0 6px 16px rgba(0,0,0,0.3);
     transition:transform .15s ease, box-shadow .15s ease;
     border:1px solid rgba(0,0,0,0.06);
-    break-inside:avoid;
-    -webkit-column-break-inside:avoid;
-    display:inline-block;
-    width:100%;
-    margin-bottom:14px;
   }
   .ticket:hover{
     transform:translateY(-2px);
@@ -358,24 +355,11 @@
     text-decoration:underline;padding:2px 4px;font-style:italic;
   }
   .link-btn:hover{color:var(--ink);}
-  .detail{
-    margin-top:12px;
-    display:none;
-  }
-  .detail.open{display:block;}
-  .detail textarea{width:100%;font-size:12px;min-height:60px;}
-  .detail .row input[type=text]{font-size:13px;}
   .del{color:var(--wax);}
 
   @media (max-width:480px){
     .nameplate{gap:0;}
     .stat{padding:0 14px;}
-  }
-  @media (max-width:900px){
-    .grid{column-count:2;}
-  }
-  @media (max-width:560px){
-    .grid{column-count:1;}
   }
 
   /* identity bar */
@@ -472,6 +456,51 @@
   .pill.due-today{color:#d99a8a;}
   .pill.due-today.active{color:#e8a99a;border-bottom-color:var(--wax);}
   .pill.due-today b{color:var(--wax);}
+
+  /* detail modal — opens on top of the grid, never shifts other cards */
+  .modal-overlay{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(15,9,7,0.72);
+    backdrop-filter:blur(2px);
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+    z-index:100;
+  }
+  .modal-overlay.open{display:flex;}
+  .modal-box{
+    background:var(--parchment);
+    color:var(--ink);
+    border-radius:2px;
+    padding:24px;
+    width:100%;
+    max-width:440px;
+    max-height:88vh;
+    overflow-y:auto;
+    position:relative;
+    border-left:3px solid var(--gold);
+    box-shadow:0 20px 50px rgba(0,0,0,0.5);
+  }
+  .modal-close{
+    position:absolute;
+    top:14px;
+    right:14px;
+    background:transparent;
+    color:var(--ink-soft);
+    font-size:20px;
+    line-height:1;
+    padding:4px 8px;
+  }
+  .modal-close:hover{color:var(--ink);}
+  .modal-box h3{
+    margin:0 20px 14px 0;
+    font-family:Georgia,serif;
+    font-style:italic;
+    font-size:18px;
+    color:var(--ink);
+  }
 </style>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
@@ -552,6 +581,30 @@
   <div id="listArea"></div>
 </div>
 
+<div class="modal-overlay" id="detailModal">
+  <div class="modal-box">
+    <button class="modal-close" id="modalClose" aria-label="Close">&times;</button>
+    <h3 id="modalTitle">Edit entry</h3>
+    <div class="row">
+      <input type="text" id="modalName" placeholder="Name" style="width:100%;">
+    </div>
+    <div class="callback-row">
+      <label for="modalCallback">Callback date</label>
+      <input type="date" id="modalCallback">
+    </div>
+    <div class="chip-row" id="modalChips"></div>
+    <textarea id="modalNotes" placeholder="Notes from the call…"></textarea>
+    <div class="panel-actions delete-zone">
+      <button class="link-btn del" id="modalDel">Delete entry</button>
+      <span class="del-confirm" id="modalDelConfirm" style="display:none;">
+        Delete this entry?
+        <button class="link-btn del-yes" id="modalDelYes" style="color:var(--wax);font-weight:700;">Yes, delete</button>
+        <button class="link-btn del-no" id="modalDelNo">Cancel</button>
+      </span>
+    </div>
+  </div>
+</div>
+
 <script>
 const STATUSES = [
   {key:'not_called', label:'To call'},
@@ -576,7 +629,7 @@ let tickets = [];
 let activeFilter = 'all';
 let searchTerm = '';
 let saveTimer = null;
-let openDetailIds = new Set(); // remembers which tickets' detail panels are expanded across re-renders, independently
+let currentModalId = null; // which ticket's detail modal is currently open, if any
 let callerName = '';
 try{ callerName = localStorage.getItem('ledger_caller_name') || ''; }catch(e){ /* storage unavailable, fine */ }
 
@@ -653,6 +706,39 @@ function addQuickTag(id, tag){
   t.updatedAt = Date.now();
   scheduleSave();
   render();
+  if(currentModalId === id) populateModal(id); // keep the open modal in sync with the tag we just added
+}
+
+function openModal(id){
+  currentModalId = id;
+  populateModal(id);
+  document.getElementById('detailModal').classList.add('open');
+}
+function closeModal(){
+  // Commit whatever's in the notes box before closing, in case the person didn't blur it first.
+  if(currentModalId){
+    const notesEl = document.getElementById('modalNotes');
+    if(notesEl) updateField(currentModalId, 'notes', notesEl.value);
+  }
+  currentModalId = null;
+  document.getElementById('detailModal').classList.remove('open');
+  document.getElementById('modalDelConfirm').style.display = 'none';
+  document.getElementById('modalDel').style.display = 'inline';
+  render();
+}
+function populateModal(id){
+  const t = tickets.find(x=>x.id===id);
+  if(!t) return;
+  document.getElementById('modalTitle').textContent = t.name;
+  document.getElementById('modalName').value = t.name;
+  document.getElementById('modalCallback').value = t.callbackDate || '';
+  document.getElementById('modalNotes').value = t.notes || '';
+  document.getElementById('modalChips').innerHTML = QUICK_TAGS.map(tag=>
+    `<button class="chip" data-tag="${escapeAttr(tag)}">${escapeHtml(tag)}</button>`
+  ).join('');
+  document.getElementById('modalChips').querySelectorAll('.chip').forEach(chip=>{
+    chip.onclick = ()=> addQuickTag(id, chip.dataset.tag);
+  });
 }
 
 let isApplyingRemoteUpdate = false;
@@ -774,7 +860,6 @@ function updateField(id, field, value){
 
 function deleteTicket(id){
   tickets = tickets.filter(x=>x.id!==id);
-  openDetailIds.delete(id);
   scheduleSave();
   render();
 }
@@ -840,47 +925,10 @@ function render(){
     card.querySelectorAll('[data-status]').forEach(btn=>{
       btn.onclick = ()=> setStatus(t.id, btn.dataset.status);
     });
-    const toggleBtn = card.querySelector('.link-btn:not(.del)');
-    const detailEl = card.querySelector('.detail');
-    if(detailEl && openDetailIds.has(t.id)){
-      detailEl.classList.add('open');
-      if(toggleBtn) toggleBtn.textContent = 'Hide details ▴';
-    }
-    if(toggleBtn){
-      toggleBtn.onclick = ()=>{
-        const d = card.querySelector('.detail');
-        d.classList.toggle('open');
-        const isOpen = d.classList.contains('open');
-        if(isOpen) openDetailIds.add(t.id); else openDetailIds.delete(t.id);
-        toggleBtn.textContent = isOpen ? 'Hide details ▴' : 'Edit / notes ▾';
-      };
-    }
-    const notesArea = card.querySelector('.notesInput');
-    if(notesArea) notesArea.onblur = ()=> updateField(t.id, 'notes', notesArea.value);
-    const nameInput = card.querySelector('.nameInput');
-    if(nameInput) nameInput.onblur = ()=> { if(nameInput.value.trim()){ updateField(t.id,'name',nameInput.value); render(); } };
+    const editBtn = card.querySelector('.link-btn');
+    if(editBtn) editBtn.onclick = ()=> openModal(t.id);
     const claimBtn = card.querySelector('.claim-btn');
     if(claimBtn) claimBtn.onclick = ()=> toggleClaim(t.id);
-    const callbackInput = card.querySelector('.callbackInput');
-    if(callbackInput) callbackInput.onchange = ()=> updateField(t.id, 'callbackDate', callbackInput.value);
-    card.querySelectorAll('.chip').forEach(chip=>{
-      chip.onclick = ()=> addQuickTag(t.id, chip.dataset.tag);
-    });
-    const delBtn = card.querySelector('.del');
-    const delConfirm = card.querySelector('.del-confirm');
-    if(delBtn && delConfirm){
-      delBtn.onclick = ()=>{
-        delBtn.style.display='none';
-        delConfirm.style.display='inline';
-      };
-      const yesBtn = card.querySelector('.del-yes');
-      const noBtn = card.querySelector('.del-no');
-      if(yesBtn) yesBtn.onclick = ()=> deleteTicket(t.id);
-      if(noBtn) noBtn.onclick = ()=>{
-        delConfirm.style.display='none';
-        delBtn.style.display='inline';
-      };
-    }
   });
 }
 
@@ -901,8 +949,6 @@ function renderTicket(t){
     claimHtml = `<button class="claim-btn">Claim — I'm calling this</button>`;
   }
 
-  const chipsHtml = QUICK_TAGS.map(tag=>`<button class="chip" data-tag="${escapeAttr(tag)}">${escapeHtml(tag)}</button>`).join('');
-
   return `
   <div class="ticket" id="card-${t.id}">
     <div class="stamp ${t.status}">${STAMP_TEXT[t.status]}</div>
@@ -914,26 +960,7 @@ function renderTicket(t){
       <button class="mini" data-status="not_called">Reset</button>
     </div>
     <div class="toggle-row">
-      <button class="link-btn">Edit / notes ▾</button>
-    </div>
-    <div class="detail">
-      <div class="row">
-        <input type="text" class="nameInput" value="${escapeAttr(t.name)}" placeholder="Name" style="width:100%;">
-      </div>
-      <div class="callback-row">
-        <label for="callback-${t.id}">Callback date</label>
-        <input type="date" class="callbackInput" id="callback-${t.id}" value="${escapeAttr(t.callbackDate||'')}">
-      </div>
-      <div class="chip-row">${chipsHtml}</div>
-      <textarea class="notesInput" placeholder="Notes from the call…">${escapeHtml(t.notes)}</textarea>
-      <div class="panel-actions delete-zone">
-        <button class="link-btn del">Delete entry</button>
-        <span class="del-confirm" style="display:none;">
-          Delete "${escapeHtml(t.name)}"?
-          <button class="link-btn del-yes" style="color:var(--wax);font-weight:700;">Yes, delete</button>
-          <button class="link-btn del-no">Cancel</button>
-        </span>
-      </div>
+      <button class="link-btn">Edit / notes</button>
     </div>
   </div>`;
 }
@@ -1002,6 +1029,34 @@ document.getElementById('saveBulk').onclick = ()=>{
   updateBulkCount();
   panelBulk.classList.remove('open');
   render();
+};
+
+const detailModal = document.getElementById('detailModal');
+document.getElementById('modalClose').onclick = closeModal;
+detailModal.addEventListener('click', e=>{ if(e.target === detailModal) closeModal(); });
+document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && detailModal.classList.contains('open')) closeModal(); });
+
+document.getElementById('modalName').addEventListener('blur', e=>{
+  if(currentModalId && e.target.value.trim()) updateField(currentModalId, 'name', e.target.value);
+});
+document.getElementById('modalCallback').addEventListener('change', e=>{
+  if(currentModalId) updateField(currentModalId, 'callbackDate', e.target.value);
+});
+document.getElementById('modalNotes').addEventListener('blur', e=>{
+  if(currentModalId) updateField(currentModalId, 'notes', e.target.value);
+});
+document.getElementById('modalDel').onclick = ()=>{
+  document.getElementById('modalDel').style.display = 'none';
+  document.getElementById('modalDelConfirm').style.display = 'inline';
+};
+document.getElementById('modalDelNo').onclick = ()=>{
+  document.getElementById('modalDelConfirm').style.display = 'none';
+  document.getElementById('modalDel').style.display = 'inline';
+};
+document.getElementById('modalDelYes').onclick = ()=>{
+  if(currentModalId) deleteTicket(currentModalId);
+  currentModalId = null;
+  detailModal.classList.remove('open');
 };
 
 renderIdentityBar();
