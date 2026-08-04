@@ -532,6 +532,35 @@
     color:var(--ink);
   }
 
+  /* duplicate-conflict modal (bulk paste) */
+  .conflict-stats{
+    display:flex;gap:10px;margin:0 0 14px;
+  }
+  .conflict-stat{
+    flex:1;padding:12px 10px;text-align:center;
+    border:1px solid var(--gold-dim);border-radius:2px;
+    background:rgba(201,162,39,0.05);
+  }
+  .conflict-stat b{display:block;font-size:20px;font-family:Georgia,serif;color:var(--ink);}
+  .conflict-stat small{font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink-soft);}
+  .conflict-stat.new-stat{border-color:var(--gold);background:rgba(201,162,39,0.1);}
+  .conflict-note{font-size:12px;color:var(--ink-soft);margin:0 0 14px;line-height:1.6;}
+  .conflict-list{
+    max-height:28vh;overflow-y:auto;
+    border-top:1px solid rgba(122,111,88,0.25);
+    margin-bottom:16px;
+  }
+  .conflict-row{
+    font-size:12.5px;color:var(--ink-soft);
+    padding:7px 2px;
+    border-bottom:1px solid rgba(122,111,88,0.18);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .conflict-list-label{
+    font-size:11px;text-transform:uppercase;letter-spacing:0.05em;
+    color:var(--ink-soft);margin:0 0 4px;
+  }
+
   /* city picker */
   .back-cta{
     position:fixed;
@@ -737,6 +766,30 @@
     <div class="panel-actions">
       <button class="btn ghost" id="cancelBulk" style="color:var(--ink);border-color:#cfc6ae;">Cancel</button>
       <button class="btn gold" id="saveBulk">Add all</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="conflictModal">
+    <div class="modal-box">
+      <button class="modal-close" id="conflictClose" aria-label="Close">&times;</button>
+      <h3>Duplicates found in your paste</h3>
+      <div class="conflict-stats">
+        <div class="conflict-stat">
+          <b id="conflictDupeCount">0</b>
+          <small>Already on this board</small>
+        </div>
+        <div class="conflict-stat new-stat">
+          <b id="conflictNewCount">0</b>
+          <small>New — will be added</small>
+        </div>
+      </div>
+      <p class="conflict-note" id="conflictNote"></p>
+      <p class="conflict-list-label" id="conflictListLabel" style="display:none;">Skipping these (already on this board)</p>
+      <div class="conflict-list" id="conflictList"></div>
+      <div class="panel-actions">
+        <button class="btn ghost" id="conflictCancel" style="color:var(--ink);border-color:#cfc6ae;">Cancel</button>
+        <button class="btn gold" id="conflictConfirm">Add new only</button>
+      </div>
     </div>
   </div>
 
@@ -1099,9 +1152,14 @@ function render(){
   document.getElementById('statSold').textContent = tickets.filter(t=>t.status==='converted').length;
 
   const today = todayStr();
-  const counts = {all: tickets.length};
-  STATUSES.forEach(s=> counts[s.key] = tickets.filter(t=>t.status===s.key).length);
-  const dueTodayCount = tickets.filter(t=> t.callbackDate===today).length;
+  let scoped = tickets.slice();
+  if(searchTerm.trim()){
+    const q = searchTerm.trim().toLowerCase();
+    scoped = scoped.filter(t=> t.name.toLowerCase().startsWith(q));
+  }
+  const counts = {all: scoped.length};
+  STATUSES.forEach(s=> counts[s.key] = scoped.filter(t=>t.status===s.key).length);
+  const dueTodayCount = scoped.filter(t=> t.callbackDate===today).length;
 
   let pillsHtml = `<button class="pill ${activeFilter==='all'?'active':''}" data-f="all">All<b>${counts.all}</b></button>`;
   STATUSES.forEach(s=>{
@@ -1113,13 +1171,9 @@ function render(){
     btn.onclick = ()=>{ activeFilter = btn.dataset.f; render(); };
   });
 
-  let list = tickets.slice();
+  let list = scoped.slice();
   if(activeFilter === 'due_today') list = list.filter(t=> t.callbackDate===today);
   else if(activeFilter !== 'all') list = list.filter(t=>t.status===activeFilter);
-  if(searchTerm.trim()){
-    const q = searchTerm.trim().toLowerCase();
-    list = list.filter(t=> t.name.toLowerCase().startsWith(q));
-  }
   list.sort((a,b)=> a.name.localeCompare(b.name));
 
   if(tickets.length === 0){
@@ -1250,37 +1304,87 @@ function updateBulkCount(){
 }
 document.getElementById('fBulk').addEventListener('input', updateBulkCount);
 
+// --- duplicate-conflict modal: informational only. Restaurants already on the
+// board are never re-addable from bulk paste — there's no legitimate reason
+// for a duplicate to exist, so we just tell the user what will happen and
+// let them proceed with the new ones or go fix their paste. ---
+const conflictModal = document.getElementById('conflictModal');
+const conflictList = document.getElementById('conflictList');
+let conflictUniqueCache = [];
+
+function escapeHtml(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function openConflictModal(unique, dupes){
+  conflictUniqueCache = unique;
+
+  document.getElementById('conflictDupeCount').textContent = dupes.length;
+  document.getElementById('conflictNewCount').textContent = unique.length;
+
+  document.getElementById('conflictNote').textContent = unique.length > 0
+    ? `${dupes.length} restaurant${dupes.length===1?' is':'s are'} already on this board and will be skipped. Only the ${unique.length} new ${unique.length===1?'name':'names'} will be added.`
+    : `All ${dupes.length} pasted names are already on this board. Nothing new to add.`;
+
+  const listLabel = document.getElementById('conflictListLabel');
+  if(dupes.length > 0){
+    listLabel.style.display = 'block';
+    conflictList.innerHTML = dupes.map(name=> `<div class="conflict-row">${escapeHtml(name)}</div>`).join('');
+  } else {
+    listLabel.style.display = 'none';
+    conflictList.innerHTML = '';
+  }
+
+  const confirmBtn = document.getElementById('conflictConfirm');
+  confirmBtn.disabled = unique.length === 0;
+  confirmBtn.style.opacity = unique.length === 0 ? '0.5' : '1';
+  confirmBtn.style.cursor = unique.length === 0 ? 'default' : 'pointer';
+
+  conflictModal.classList.add('open');
+}
+
+function closeConflictModal(){
+  conflictModal.classList.remove('open');
+}
+document.getElementById('conflictClose').onclick = closeConflictModal;
+document.getElementById('conflictCancel').onclick = closeConflictModal;
+conflictModal.addEventListener('click', e=>{ if(e.target === conflictModal) closeConflictModal(); });
+document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && conflictModal.classList.contains('open')) closeConflictModal(); });
+
+document.getElementById('conflictConfirm').onclick = ()=>{
+  if(conflictUniqueCache.length === 0) return;
+
+  conflictUniqueCache.forEach(name=> addTicket(name, ''));
+  scheduleSave();
+  document.getElementById('fBulk').value='';
+  render();
+  closeConflictModal();
+
+  document.getElementById('bulkCount').textContent =
+    `Added ${conflictUniqueCache.length} restaurant${conflictUniqueCache.length===1?'':'s'}.`;
+  updateBulkCount();
+  panelBulk.classList.remove('open');
+};
+
 document.getElementById('saveBulk').onclick = ()=>{
   const { unique, dupes } = splitBulkLines();
-  const countEl = document.getElementById('bulkCount');
 
   if(unique.length === 0 && dupes.length === 0){
     return; // nothing pasted — nothing to do
   }
 
-  if(unique.length === 0){
-    // Every pasted name is already on this board. Skip the save entirely so
-    // we don't fire the "Saved" indicator for a no-op, and explain why
-    // nothing happened instead of silently closing the panel.
-    countEl.textContent = dupes.length === 1
-      ? 'Nothing added — that restaurant is already on this board.'
-      : `Nothing added — all ${dupes.length} are already on this board.`;
+  if(dupes.length === 0){
+    // No conflicts at all — just add everything, no need to interrupt with a modal.
+    unique.forEach(name=> addTicket(name, ''));
+    scheduleSave();
+    document.getElementById('fBulk').value='';
+    render();
+    updateBulkCount();
+    panelBulk.classList.remove('open');
     return;
   }
 
-  unique.forEach(name=> addTicket(name, ''));
-  scheduleSave();
-  document.getElementById('fBulk').value='';
-  render();
-
-  if(dupes.length > 0){
-    // Some were skipped as duplicates — leave the panel open with a summary
-    // instead of closing it straight away, so this doesn't get missed.
-    countEl.textContent = `Added ${unique.length} new ${unique.length===1?'restaurant':'restaurants'} — ${dupes.length} ${dupes.length===1?'was':'were'} already on this board and skipped.`;
-  } else {
-    updateBulkCount();
-    panelBulk.classList.remove('open');
-  }
+  openConflictModal(unique, dupes);
 };
 
 const detailModal = document.getElementById('detailModal');
