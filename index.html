@@ -731,6 +731,13 @@ function scheduleSave(delay){
 }
 
 function setStatus(id, status){
+  // If the notes textarea (or any input) still has focus, force its blur handler
+  // to run now, synchronously, so a pending edit can't land AFTER this reset and
+  // silently undo it. Blur handlers fire synchronously in the browser, so this
+  // guarantees ordering instead of leaving it up to the browser/device.
+  if(document.activeElement && typeof document.activeElement.blur === 'function'){
+    document.activeElement.blur();
+  }
   const t = tickets.find(x=>x.id===id);
   if(!t) return;
   t.status = status;
