@@ -654,6 +654,8 @@
   }
   .claim-btn:hover{border-color:var(--ink);color:var(--ink);}
   .claim-btn.release{color:var(--wax);border-color:rgba(122,36,32,0.4);}
+  .claim-btn.force-unlock{border-style:dashed;color:var(--ink-soft);}
+  .claim-btn.force-unlock:hover{border-color:var(--wax);color:var(--wax);}
 
   /* callback date */
   .callback-row{
@@ -1113,6 +1115,7 @@
     <button class="modal-close" id="modalClose" aria-label="Close">&times;</button>
     <h3 id="modalTitle">Edit entry</h3>
     <p class="conflict-note" id="modalLockNotice" style="display:none;"></p>
+    <button class="link-btn" id="modalForceUnlock" style="display:none;color:var(--wax);margin:-8px 0 12px;">Force unlock</button>
     <div class="row">
       <input type="text" id="modalName" placeholder="Name" style="width:100%;">
     </div>
@@ -1362,6 +1365,17 @@ function isLockedByOther(t){
 function warnLocked(t){
   alert(`This restaurant is currently being called by ${t.claimedBy}. Wait for them to finish or release it before making changes.`);
 }
+function forceUnlockClaim(id){
+  const t = tickets.find(x=>x.id===id);
+  if(!t) return;
+  if(!confirm(`Force-unlock this from ${t.claimedBy}? Only do this if they're not actually still on the call — it clears their claim immediately.`)) return;
+  t.claimedBy = null;
+  t.claimedAt = null;
+  t.handledBy = null;
+  scheduleSave();
+  render();
+  if(currentModalId === id) populateModal(id);
+}
 function toggleClaim(id){
   const t = tickets.find(x=>x.id===id);
   if(!t) return;
@@ -1435,6 +1449,9 @@ function populateModal(id){
   lockNotice.textContent = locked
     ? `Being called by ${t.claimedBy} — editing is locked until they finish or release it.`
     : '';
+  const forceUnlockBtn = document.getElementById('modalForceUnlock');
+  forceUnlockBtn.style.display = locked ? 'inline-block' : 'none';
+  forceUnlockBtn.onclick = locked ? (()=> forceUnlockClaim(id)) : null;
   ['modalName','modalPhone','modalCallback','modalNotes'].forEach(elId=>{
     document.getElementById(elId).disabled = locked;
   });
@@ -1695,7 +1712,10 @@ function render(){
     const editBtn = card.querySelector('.link-btn');
     if(editBtn) editBtn.onclick = ()=> openModal(t.id);
     const claimBtn = card.querySelector('.claim-btn');
-    if(claimBtn) claimBtn.onclick = ()=> toggleClaim(t.id);
+    if(claimBtn){
+      if(claimBtn.classList.contains('force-unlock')) claimBtn.onclick = ()=> forceUnlockClaim(t.id);
+      else claimBtn.onclick = ()=> toggleClaim(t.id);
+    }
   });
 }
 
@@ -1711,7 +1731,7 @@ function renderTicket(t){
 
   let claimHtml;
   if(claimActive && !claimIsMine){
-    claimHtml = `<span class="claim-badge">Being called by ${escapeHtml(t.claimedBy)}</span>`;
+    claimHtml = `<span class="claim-badge">Being called by ${escapeHtml(t.claimedBy)}</span><button class="claim-btn force-unlock" title="Use this if they're not actually still on this call">Force unlock</button>`;
   } else if(claimIsMine){
     claimHtml = `<span class="claim-badge mine">You're calling this</span><button class="claim-btn release">Release</button>`;
   } else {
