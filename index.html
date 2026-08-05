@@ -148,6 +148,12 @@
     display:flex;
     align-items:center;
     gap:10px;
+    transition:opacity 0.2s ease, transform 0.2s ease;
+  }
+  .board-topbar.is-scrolled{
+    opacity:0;
+    transform:translateY(-8px);
+    pointer-events:none;
   }
   .board-topbar .back-cta{
     position:static; /* the wrapper handles fixed placement now */
@@ -764,6 +770,17 @@
     color:var(--ink-soft);margin:0 0 4px;
   }
 
+  /* Callers breakdown modal */
+  .caller-group{margin-bottom:18px;}
+  .caller-group:last-child{margin-bottom:0;}
+  .caller-group-header{
+    display:flex;justify-content:space-between;align-items:baseline;
+    margin-bottom:6px;
+  }
+  .caller-group-header b{font-family:Georgia,serif;font-size:16px;color:var(--ink);}
+  .caller-count{font-size:11px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.05em;}
+  .caller-group .conflict-list{max-height:22vh;}
+
   /* city picker */
   .back-cta{
     position:fixed;
@@ -1039,11 +1056,21 @@
       <button class="pill pill-more" id="moreFilterBtn">More <span class="caret">&#9662;</span></button>
       <div class="pill-more-dropdown" id="moreFilterDropdown">
         <button class="pill-more-item" id="moreItemTagged" data-f="tagged">Tag chips <b id="moreCountTagged">0</b></button>
+        <button class="pill-more-item" id="moreItemCallers">Callers <b id="moreCountCallers">0</b></button>
       </div>
     </div>
   </div>
 
   <div id="listArea"></div>
+</div>
+
+<div class="modal-overlay" id="callersModal">
+  <div class="modal-box">
+    <button class="modal-close" id="callersModalClose" aria-label="Close">&times;</button>
+    <h3>Callers</h3>
+    <p class="conflict-note">Who's currently attributed to each restaurant on this board. This updates live — if someone releases a claim or resets a ticket, it comes off their count right away.</p>
+    <div id="callersListArea"></div>
+  </div>
 </div>
 
 <div class="modal-overlay" id="addCityModal">
@@ -1154,14 +1181,16 @@ function updatePillsFade(){
 pillsEl.addEventListener('scroll', updatePillsFade);
 window.addEventListener('resize', updatePillsFade);
 
-// --- "More" filter dropdown (Tag chips / Due today) ---
+// --- "More" filter dropdown (Tag chips / Callers) ---
 const moreFilterBtn = document.getElementById('moreFilterBtn');
 const moreFilterDropdown = document.getElementById('moreFilterDropdown');
 moreFilterBtn.addEventListener('click', (e)=>{
   e.stopPropagation();
   moreFilterDropdown.classList.toggle('open');
 });
-moreFilterDropdown.querySelectorAll('.pill-more-item').forEach(btn=>{
+// Only items that filter the ticket list (i.e. carry a data-f) get bound here.
+// "Callers" isn't a filter — it opens its own breakdown modal instead (wired below).
+moreFilterDropdown.querySelectorAll('.pill-more-item[data-f]').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     activeFilter = btn.dataset.f;
     moreFilterDropdown.classList.remove('open');
@@ -1176,6 +1205,53 @@ document.addEventListener('click', (e)=>{
 document.addEventListener('keydown', e=>{
   if(e.key === 'Escape') moreFilterDropdown.classList.remove('open');
 });
+
+// --- Callers breakdown modal ---
+// Groups tickets by their current `handledBy` attribution — a live "who's
+// working this" snapshot, not a permanent history log. A ticket drops out of
+// its caller's group the moment it's released or reset (see toggleClaim and
+// setStatus), so this always reflects the current state of the board.
+function getCallerBreakdown(){
+  const map = {};
+  tickets.forEach(t=>{
+    if(t.handledBy){
+      if(!map[t.handledBy]) map[t.handledBy] = [];
+      map[t.handledBy].push(t.name);
+    }
+  });
+  return Object.keys(map).sort((a,b)=>a.localeCompare(b)).map(name=>({
+    name,
+    restaurants: map[name].sort((a,b)=>a.localeCompare(b))
+  }));
+}
+
+const callersModal = document.getElementById('callersModal');
+function renderCallersModal(){
+  const groups = getCallerBreakdown();
+  const listArea = document.getElementById('callersListArea');
+  if(groups.length === 0){
+    listArea.innerHTML = `<p class="conflict-note">Nobody's claimed or called anything on this board yet.</p>`;
+    return;
+  }
+  listArea.innerHTML = groups.map(g => `
+    <div class="caller-group">
+      <div class="caller-group-header">
+        <b>${escapeHtml(g.name)}</b>
+        <span class="caller-count">${g.restaurants.length} ${g.restaurants.length===1?'restaurant':'restaurants'}</span>
+      </div>
+      <div class="conflict-list">
+        ${g.restaurants.map(r=>`<div class="conflict-row">${escapeHtml(r)}</div>`).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+document.getElementById('moreItemCallers').addEventListener('click', ()=>{
+  moreFilterDropdown.classList.remove('open');
+  renderCallersModal();
+  callersModal.classList.add('open');
+});
+document.getElementById('callersModalClose').addEventListener('click', ()=> callersModal.classList.remove('open'));
+callersModal.addEventListener('click', e=>{ if(e.target === callersModal) callersModal.classList.remove('open'); });
 
 function uid(){return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);}
 
@@ -1281,9 +1357,13 @@ function toggleClaim(id){
   if(isClaimActive(t) && t.claimedBy === callerName){
     t.claimedBy = null;
     t.claimedAt = null;
+    // Explicitly un-claiming removes them from the Callers tally too — it's a
+    // live "who's on this right now" count, not a permanent history log.
+    t.handledBy = null;
   } else if(!isClaimActive(t)){
     t.claimedBy = callerName;
     t.claimedAt = Date.now();
+    t.handledBy = callerName;
   } else {
     return; // someone else has an active claim
   }
@@ -1451,11 +1531,17 @@ function setStatus(id, status){
   t.updatedAt = Date.now();
   if(status === 'not_called'){
     // A full reset should clear everything tied to the previous calling attempt —
-    // claim, callback date, and any quick-tag notes — not just the status label.
+    // claim, callback date, quick-tag notes, and who it's attributed to.
     t.claimedBy = null;
     t.claimedAt = null;
     t.callbackDate = '';
     t.notes = '';
+    t.handledBy = null;
+  } else if(callerName){
+    // Marking any real outcome attributes this restaurant to whoever's calling
+    // right now. This is a live "current owner" tally (see getCallerBreakdown),
+    // not a history log — it simply gets reassigned if someone else works it next.
+    t.handledBy = callerName;
   }
   scheduleSave();
   render();
@@ -1485,7 +1571,8 @@ function addTicket(name, notes){
     updatedAt: Date.now(),
     claimedBy: null,
     claimedAt: null,
-    callbackDate: ''
+    callbackDate: '',
+    handledBy: null // permanent "who's working this" attribution — see getCallerBreakdown()
   });
 }
 
@@ -1526,11 +1613,15 @@ function render(){
   });
   updatePillsFade();
 
-  // "More" dropdown — just Tag chips now
+  // "More" dropdown — Tag chips filter, plus the Callers breakdown count
   moreFilterBtn.classList.toggle('active', activeFilter === 'tagged');
   moreFilterBtn.innerHTML = (activeFilter === 'tagged' ? 'Tag chips' : 'More') + ' <span class="caret">&#9662;</span>';
   document.getElementById('moreCountTagged').textContent = taggedCount;
   document.getElementById('moreItemTagged').classList.toggle('active', activeFilter === 'tagged');
+  document.getElementById('moreCountCallers').textContent = tickets.filter(t=>t.handledBy).length;
+  // Keep the Callers modal live if it's open while a sync update or another
+  // action changes attributions, instead of showing a stale snapshot.
+  if(callersModal.classList.contains('open')) renderCallersModal();
 
   let list = scoped.slice();
   if(activeFilter === 'due_today') list = list.filter(t=> t.callbackDate===today);
@@ -2277,18 +2368,26 @@ function router(){
 }
 window.addEventListener('hashchange', router);
 
-// Fixed top-right stats/menu/identity bar should get out of the way once the
-// user starts scrolling the ticket list, instead of floating over it.
+// Fixed top-right stats/menu/identity bar — and the top-left "Cities"/Saved
+// bar — should both get out of the way once the user starts scrolling the
+// ticket list, instead of floating over it. Same threshold, same fade, so
+// they disappear and reappear together as a matched pair.
 (function(){
   const menuWrap = document.querySelector('.board-menu-wrap');
-  if(!menuWrap) return;
+  const topBar = document.querySelector('.board-topbar');
+  if(!menuWrap && !topBar) return;
   const SCROLL_HIDE_THRESHOLD = 10;
   function updateMenuWrapVisibility(){
     const shouldHide = window.scrollY > SCROLL_HIDE_THRESHOLD;
-    menuWrap.classList.toggle('is-scrolled', shouldHide);
-    if(shouldHide){
-      const dropdown = document.getElementById('boardMenuDropdown');
-      if(dropdown) dropdown.classList.remove('open');
+    if(menuWrap){
+      menuWrap.classList.toggle('is-scrolled', shouldHide);
+      if(shouldHide){
+        const dropdown = document.getElementById('boardMenuDropdown');
+        if(dropdown) dropdown.classList.remove('open');
+      }
+    }
+    if(topBar){
+      topBar.classList.toggle('is-scrolled', shouldHide);
     }
   }
   window.addEventListener('scroll', updateMenuWrapVisibility, {passive:true});
