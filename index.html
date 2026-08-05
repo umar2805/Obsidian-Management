@@ -139,49 +139,39 @@
     #saveStatus{padding:7px 12px;font-size:10px;max-width:60vw;}
   }
 
-  /* board-view sticky header: back link + save status on the left, stats/menu
-     on the right. Sticky (not fixed) so it reserves real space in the page
-     flow — ticket cards start below it and never render underneath it — and
-     it simply sticks to the top of the viewport once you scroll past it. */
-  .board-header-bar{
-    position:sticky;
-    top:0;
-    z-index:50;
-    display:flex;
-    justify-content:space-between;
-    align-items:flex-start;
-    flex-wrap:wrap;
-    gap:10px;
-    background:var(--leather);
-    padding:16px 20px;
-    margin:-32px -20px 20px;
-  }
-  @media (max-width:600px){
-    .board-header-bar{padding:10px;margin:-32px -20px 16px;}
-  }
-
   /* board-view top-left bar: exit link + save status, side by side */
   .board-topbar{
+    position:fixed;
+    top:16px;
+    left:20px;
+    z-index:50;
     display:flex;
     align-items:center;
     gap:10px;
   }
   .board-topbar .back-cta{
-    position:static; /* the sticky board-header-bar handles placement now */
-    box-shadow:none;
+    position:static; /* the wrapper handles fixed placement now */
+  }
+  @media (max-width:600px){
+    .board-topbar{top:10px;left:10px;gap:8px;}
   }
 
   /* board hamburger menu — mirrors board-topbar but pinned top-right */
   .board-menu-wrap{
+    position:fixed;
+    top:16px;
+    right:20px;
+    z-index:50;
     display:flex;
     flex-direction:column;
     align-items:flex-end;
     gap:8px;
-    background:var(--leather-2);
-    border:1px solid var(--gold-dim);
-    border-radius:2px;
-    padding:8px 10px;
-    box-shadow:0 4px 12px rgba(0,0,0,0.35);
+    transition:opacity 0.2s ease, transform 0.2s ease;
+  }
+  .board-menu-wrap.is-scrolled{
+    opacity:0;
+    transform:translateY(-8px);
+    pointer-events:none;
   }
   .board-menu-row{
     display:flex;
@@ -189,7 +179,7 @@
     gap:16px;
   }
   @media (max-width:600px){
-    .board-menu-wrap{gap:6px;padding:6px 8px;}
+    .board-menu-wrap{top:10px;right:10px;gap:6px;}
     .board-menu-row{gap:8px;}
   }
   .board-stats{
@@ -199,7 +189,7 @@
     padding:6px 14px;
     border:1px solid var(--gold-dim);
     border-radius:2px;
-    background:var(--leather-2);
+    background:rgba(20,14,10,0.55);
   }
   .board-stat{text-align:center;}
   .board-stat b{
@@ -231,7 +221,7 @@
     width:38px;height:38px;
     border:1px solid var(--gold-dim);
     border-radius:2px;
-    background:var(--leather-2);
+    background:rgba(20,14,10,0.55);
     display:flex;
     flex-direction:column;
     align-items:center;
@@ -958,14 +948,13 @@
 </div>
 
 <div class="wrap" id="boardView" style="display:none;">
-  <div class="board-header-bar">
-    <div class="board-topbar">
-      <a href="#/" class="back-cta" id="boardBackCta">&larr; Cities</a>
-      <div id="saveStatus"></div>
-    </div>
-    <div class="board-menu-wrap">
-      <div class="board-menu-row">
-        <div class="board-stats" id="boardStats">
+  <div class="board-topbar">
+    <a href="#/" class="back-cta" id="boardBackCta">&larr; Cities</a>
+    <div id="saveStatus"></div>
+  </div>
+  <div class="board-menu-wrap">
+    <div class="board-menu-row">
+      <div class="board-stats" id="boardStats">
         <div class="board-stat"><b id="statTotal">0</b><small>Total</small></div>
         <div class="board-stat"><b id="statCalled">0</b><small>Called</small></div>
         <div class="board-stat"><b id="statToday">0</b><small>Today</small></div>
@@ -978,7 +967,6 @@
       </div>
     </div>
     <div class="identity-bar" id="identityBar"></div>
-    </div>
   </div>
   <header>
     <h1 class="serif" id="cityTitle">The Ledger</h1>
@@ -2288,6 +2276,24 @@ function router(){
   showCountryPicker();
 }
 window.addEventListener('hashchange', router);
+
+// Fixed top-right stats/menu/identity bar should get out of the way once the
+// user starts scrolling the ticket list, instead of floating over it.
+(function(){
+  const menuWrap = document.querySelector('.board-menu-wrap');
+  if(!menuWrap) return;
+  const SCROLL_HIDE_THRESHOLD = 10;
+  function updateMenuWrapVisibility(){
+    const shouldHide = window.scrollY > SCROLL_HIDE_THRESHOLD;
+    menuWrap.classList.toggle('is-scrolled', shouldHide);
+    if(shouldHide){
+      const dropdown = document.getElementById('boardMenuDropdown');
+      if(dropdown) dropdown.classList.remove('open');
+    }
+  }
+  window.addEventListener('scroll', updateMenuWrapVisibility, {passive:true});
+  updateMenuWrapVisibility();
+})();
 
 // ---- add-city modal ----
 const addCityModal = document.getElementById('addCityModal');
