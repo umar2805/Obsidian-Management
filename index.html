@@ -45,6 +45,12 @@
     margin:0 auto;
     padding:32px 20px 90px;
   }
+  @media (max-width:600px){
+    /* the back-cta / board-topbar bar is fixed at top:10px and isn't part of
+       document flow, so the header needs enough top padding on small screens
+       to clear it — otherwise the title text slides underneath the button. */
+    .wrap{padding-top:64px;}
+  }
 
   /* header */
   header{
@@ -157,7 +163,7 @@
     margin-bottom:16px;
     flex-wrap:wrap;
   }
-  input[type=text], textarea{
+  input[type=text], input[type=tel], textarea{
     background:var(--parchment);
     color:var(--ink);
     border:1px solid #d9c9a3;
@@ -167,7 +173,7 @@
     font-family:inherit;
     box-shadow:inset 0 1px 3px rgba(0,0,0,0.15);
   }
-  input[type=text]:focus, textarea:focus{outline:none;border-color:var(--gold);box-shadow:inset 0 1px 3px rgba(0,0,0,0.15), 0 0 0 3px rgba(201,162,39,0.25);}
+  input[type=text]:focus, input[type=tel]:focus, textarea:focus{outline:none;border-color:var(--gold);box-shadow:inset 0 1px 3px rgba(0,0,0,0.15), 0 0 0 3px rgba(201,162,39,0.25);}
   #search{flex:1;min-width:160px;}
   button{
     cursor:pointer;
@@ -246,7 +252,7 @@
     color:var(--ink);
   }
   .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
-  .row input[type=text]{flex:1;min-width:140px;}
+  .row input[type=text], .row input[type=tel]{flex:1;min-width:140px;}
   textarea{width:100%;min-height:90px;resize:vertical;}
   .panel-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;}
   .hint{font-size:12px;color:var(--ink-soft);margin:6px 0 12px;line-height:1.6;}
@@ -325,6 +331,21 @@
     max-height:32px;
     overflow:hidden;
   }
+  .ticket .phone-line{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    font-size:12px;
+    color:var(--gold-dim);
+    margin-top:6px;
+    text-decoration:none;
+    border-bottom:1px dotted var(--gold-dim);
+  }
+  .ticket .phone-line::before{
+    content:"☎";
+    font-size:11px;
+  }
+  .ticket .phone-line:hover{color:var(--ink);border-bottom-color:var(--ink);}
 
   .stamp{
     position:absolute;
@@ -688,6 +709,7 @@
   // without needing to be a module itself. There's no single fixed trackerRef anymore —
   // each city gets its own doc, so the plain script builds the ref it needs via `doc`.
   window.__firestore = { db, doc, getDoc, setDoc, onSnapshot };
+  window.__firestoreReady = true;
   window.dispatchEvent(new Event('firestore-ready'));
 </script>
 </head>
@@ -701,6 +723,9 @@
   <div id="countryPickerArea">
     <div class="city-grid" id="countryGrid"></div>
     <button class="add-city-card" id="btnAddCountry">+ Add a country</button>
+  </div>
+  <div style="text-align:center;margin-top:26px;">
+    <button class="btn ghost" id="btnExportAll" title="Download every restaurant across every country and city as one CSV file">Download full backup (CSV)</button>
   </div>
 </div>
 
@@ -740,6 +765,7 @@
     <input type="text" id="search" placeholder="Search restaurant name…">
     <button class="btn gold" id="btnAdd">+ Add</button>
     <button class="btn ghost" id="btnBulk">Bulk paste</button>
+    <button class="btn ghost" id="btnExportBoard" title="Download this board as a CSV file">Export CSV</button>
   </div>
 
   <div class="panel" id="panelAdd">
@@ -834,6 +860,9 @@
     <h3 id="modalTitle">Edit entry</h3>
     <div class="row">
       <input type="text" id="modalName" placeholder="Name" style="width:100%;">
+    </div>
+    <div class="row">
+      <input type="tel" id="modalPhone" placeholder="Phone number (optional)" style="width:100%;">
     </div>
     <div class="callback-row">
       <label for="modalCallback">Callback date</label>
@@ -965,10 +994,12 @@ function openModal(id){
   document.getElementById('detailModal').classList.add('open');
 }
 function closeModal(){
-  // Commit whatever's in the notes box before closing, in case the person didn't blur it first.
+  // Commit whatever's in the notes/phone boxes before closing, in case the person didn't blur them first.
   if(currentModalId){
     const notesEl = document.getElementById('modalNotes');
     if(notesEl) updateField(currentModalId, 'notes', notesEl.value);
+    const phoneEl = document.getElementById('modalPhone');
+    if(phoneEl) updateField(currentModalId, 'phone', phoneEl.value.trim());
   }
   currentModalId = null;
   document.getElementById('detailModal').classList.remove('open');
@@ -981,6 +1012,7 @@ function populateModal(id){
   if(!t) return;
   document.getElementById('modalTitle').textContent = t.name;
   document.getElementById('modalName').value = t.name;
+  document.getElementById('modalPhone').value = t.phone || '';
   document.getElementById('modalCallback').value = t.callbackDate || '';
   document.getElementById('modalNotes').value = t.notes || '';
   document.getElementById('modalChips').innerHTML = QUICK_TAGS.map(tag=>
@@ -1128,6 +1160,7 @@ function addTicket(name, notes){
     id: uid(),
     name: name.trim(),
     notes: (notes||'').trim(),
+    phone: '',
     status: 'not_called',
     updatedAt: Date.now(),
     claimedBy: null,
@@ -1221,6 +1254,7 @@ function renderTicket(t){
   <div class="ticket" id="card-${t.id}">
     <div class="stamp ${t.status}">${STAMP_TEXT[t.status]}</div>
     <div class="name"><span class="name-text">${escapeHtml(t.name)}</span></div>
+    ${t.phone ? `<a class="phone-line" href="tel:${escapeAttr(t.phone.replace(/[^\d+]/g,''))}">${escapeHtml(t.phone)}</a>` : ''}
     ${t.notes ? `<div class="notes-preview">${escapeHtml(t.notes)}</div>` : ''}
     <div class="claim-row">${claimHtml}</div>
     <div class="action-row">
@@ -1237,6 +1271,94 @@ function escapeHtml(s){
   return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 function escapeAttr(s){ return escapeHtml(s); }
+
+// --- CSV export / backup ---------------------------------------------------
+// A single restaurant's name, phone, or notes could contain a comma, quote,
+// or newline — any of those breaks a naive CSV if not escaped properly, so
+// every field is always wrapped in quotes with internal quotes doubled,
+// which is the standard CSV escaping rule spreadsheet apps expect.
+function csvField(value){
+  const s = (value===null || value===undefined) ? '' : String(value);
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+function toCsv(headers, rows){
+  const lines = [headers.map(csvField).join(',')];
+  rows.forEach(row=> lines.push(row.map(csvField).join(',')));
+  return lines.join('\r\n');
+}
+function downloadCsv(filename, csvString){
+  // Prepend a UTF-8 BOM so accented characters (café, Ré, etc.) display
+  // correctly when the file is opened in Excel, not just in text editors.
+  const blob = new Blob(['\uFEFF' + csvString], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function ticketToRow(t, extraCols){
+  const statusLabel = (STATUSES.find(s=>s.key===t.status) || {}).label || t.status;
+  return [...extraCols, t.name, t.phone||'', statusLabel, t.callbackDate||'', t.notes||'',
+    t.updatedAt ? new Date(t.updatedAt).toLocaleString() : ''];
+}
+
+document.getElementById('btnExportBoard').onclick = ()=>{
+  const csv = toCsv(
+    ['Name','Phone','Status','Callback date','Notes','Last updated'],
+    tickets.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(t=> ticketToRow(t, []))
+  );
+  const cityLabel = (document.getElementById('cityTitle').textContent || 'board').trim();
+  downloadCsv(`${cityLabel.replace(/[^\w\- ]+/g,'')} — restaurants.csv`, csv);
+};
+
+document.getElementById('btnExportAll').onclick = async (e)=>{
+  const btn = e.currentTarget;
+  const originalText = btn.textContent;
+  btn.textContent = 'Preparing backup…';
+  btn.disabled = true;
+  try{
+    const { db, doc, getDoc } = window.__firestore;
+    const [countries, cities] = await Promise.all([getCountriesList(), getCitiesList()]);
+    const countryNameById = Object.fromEntries(countries.map(c=>[c.id, c.name]));
+
+    // Fetch every city's board in parallel — with 260+ restaurants across
+    // several cities this is still just one request per city, not per row.
+    const perCity = await Promise.all(cities.map(async c=>{
+      try{
+        const snap = await getDoc(doc(db, 'tracker', c.id));
+        const cTickets = (snap.exists() && snap.data().data) ? JSON.parse(snap.data().data) : [];
+        return { city: c, tickets: cTickets };
+      }catch(err){
+        console.error('Backup: failed to load city', c.id, err);
+        return { city: c, tickets: [] };
+      }
+    }));
+
+    const rows = [];
+    perCity.forEach(({city, tickets: cTickets})=>{
+      const countryName = countryNameById[city.countryId] || '';
+      cTickets.slice().sort((a,b)=>a.name.localeCompare(b.name)).forEach(t=>{
+        rows.push(ticketToRow(t, [countryName, city.name]));
+      });
+    });
+
+    const csv = toCsv(
+      ['Country','City','Name','Phone','Status','Callback date','Notes','Last updated'],
+      rows
+    );
+    const stamp = new Date().toISOString().slice(0,10);
+    downloadCsv(`Ledger full backup — ${stamp}.csv`, csv);
+  }catch(err){
+    console.error('Full backup failed', err);
+    alert("Couldn't build the backup — check your connection and try again.");
+  }finally{
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
+};
 
 document.getElementById('search').addEventListener('input', e=>{
   searchTerm = e.target.value;
@@ -1394,6 +1516,9 @@ document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && detailModal.c
 
 document.getElementById('modalName').addEventListener('blur', e=>{
   if(currentModalId && e.target.value.trim()) updateField(currentModalId, 'name', e.target.value);
+});
+document.getElementById('modalPhone').addEventListener('blur', e=>{
+  if(currentModalId) updateField(currentModalId, 'phone', e.target.value.trim());
 });
 document.getElementById('modalCallback').addEventListener('change', e=>{
   if(currentModalId) updateField(currentModalId, 'callbackDate', e.target.value);
@@ -1848,7 +1973,7 @@ async function initApp(){
   router();
 }
 
-if(window.__firestore){
+if(window.__firestoreReady){
   initApp();
 }else{
   window.addEventListener('firestore-ready', initApp);
