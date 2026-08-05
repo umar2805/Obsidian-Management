@@ -203,7 +203,13 @@
     border-radius:2px;
     background:rgba(20,14,10,0.55);
   }
-  .board-stat{text-align:center;}
+  .board-stat{
+    text-align:center;
+    padding:0 8px;
+    border-right:1px solid rgba(201,162,39,0.25);
+  }
+  .board-stat:last-child{border-right:none;padding-right:0;}
+  .board-stat:first-child{padding-left:0;}
   .board-stat b{
     display:block;
     font-size:15px;
@@ -220,14 +226,17 @@
     margin-top:1px;
   }
   @media (max-width:600px){
-    .board-stats{gap:8px;padding:5px 9px;}
-    .board-stat small{display:none;}
+    .board-stats{gap:0;padding:5px 9px;}
+    .board-stat{padding:0 6px;}
+    .board-stat small{font-size:6.5px;letter-spacing:0.02em;}
     .board-stat b{font-size:12px;}
   }
   @media (max-width:420px){
-    /* very narrow phones — keep just the count, drop the border/box chrome so
-       it never collides with the "← Cities" bar pinned on the opposite corner */
-    .board-stats{gap:6px;padding:4px 6px;border-color:transparent;background:transparent;}
+    /* very narrow phones — tighten spacing further but keep labels and
+       dividers so the numbers stay legible instead of running together */
+    .board-stats{gap:0;padding:4px 6px;}
+    .board-stat{padding:0 4px;}
+    .board-stat small{font-size:6px;}
   }
   .hamburger-btn{
     width:38px;height:38px;
