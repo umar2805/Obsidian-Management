@@ -580,6 +580,8 @@
     transition:background .12s ease;
   }
   .mini:hover{background:#3a2c20;}
+  .mini:disabled{opacity:0.35;cursor:not-allowed;background:var(--ink);}
+  .mini:disabled:hover{background:var(--ink);}
   .mini.active-red{background:var(--wax);}
   .mini.active-amber{background:var(--brass);color:#fff;}
   .mini.active-green{background:var(--emerald);}
@@ -690,6 +692,9 @@
     letter-spacing:0.01em;
   }
   .chip:hover{border-color:var(--gold-dim);color:var(--ink);background:rgba(201,162,39,0.08);}
+  .chip:disabled{opacity:0.4;cursor:not-allowed;background:transparent;}
+  .chip:disabled:hover{border-color:#cfc6ae;color:var(--ink-soft);}
+  .modal-box input:disabled, .modal-box textarea:disabled{opacity:0.55;cursor:not-allowed;background:#efe6cf;}
 
   /* due-today pill accent */
   .pill.due-today{color:#d99a8a;}
@@ -1107,6 +1112,7 @@
   <div class="modal-box">
     <button class="modal-close" id="modalClose" aria-label="Close">&times;</button>
     <h3 id="modalTitle">Edit entry</h3>
+    <p class="conflict-note" id="modalLockNotice" style="display:none;"></p>
     <div class="row">
       <input type="text" id="modalName" placeholder="Name" style="width:100%;">
     </div>
@@ -1157,7 +1163,6 @@ function hasAnyQuickTag(t){
   const notes = t.notes || '';
   return QUICK_TAGS.some(tag=> notes.includes(tag));
 }
-const CLAIM_EXPIRY_MS = 20 * 60 * 1000; // 20 minutes
 
 let tickets = [];
 let activeFilter = 'all';
@@ -1344,7 +1349,18 @@ function renderIdentityBar(){
 }
 
 function isClaimActive(t){
-  return !!(t.claimedBy && t.claimedAt && (Date.now() - t.claimedAt < CLAIM_EXPIRY_MS));
+  // Claims no longer expire — a restaurant stays locked to whoever claimed it
+  // until they explicitly release it (or someone resets the ticket).
+  return !!t.claimedBy;
+}
+// True when someone OTHER than the current caller has an active claim on this
+// ticket — used to actually block status changes, edits, tags, and deletes,
+// not just show the "Being called by X" badge.
+function isLockedByOther(t){
+  return isClaimActive(t) && t.claimedBy !== callerName;
+}
+function warnLocked(t){
+  alert(`This restaurant is currently being called by ${t.claimedBy}. Wait for them to finish or release it before making changes.`);
 }
 function toggleClaim(id){
   const t = tickets.find(x=>x.id===id);
@@ -1376,6 +1392,7 @@ function toggleClaim(id){
 function addQuickTag(id, tag){
   const t = tickets.find(x=>x.id===id);
   if(!t) return;
+  if(isLockedByOther(t)){ warnLocked(t); return; }
   const existing = (t.notes||'').trim();
   t.notes = existing ? existing + ', ' + tag : tag;
   t.updatedAt = Date.now();
@@ -1411,8 +1428,20 @@ function populateModal(id){
   document.getElementById('modalPhone').value = t.phone || '';
   document.getElementById('modalCallback').value = t.callbackDate || '';
   document.getElementById('modalNotes').value = t.notes || '';
+
+  const locked = isLockedByOther(t);
+  const lockNotice = document.getElementById('modalLockNotice');
+  lockNotice.style.display = locked ? 'block' : 'none';
+  lockNotice.textContent = locked
+    ? `Being called by ${t.claimedBy} — editing is locked until they finish or release it.`
+    : '';
+  ['modalName','modalPhone','modalCallback','modalNotes'].forEach(elId=>{
+    document.getElementById(elId).disabled = locked;
+  });
+  document.getElementById('modalDel').style.display = locked ? 'none' : 'inline';
+
   document.getElementById('modalChips').innerHTML = QUICK_TAGS.map(tag=>
-    `<button class="chip" data-tag="${escapeAttr(tag)}">${escapeHtml(tag)}</button>`
+    `<button class="chip" data-tag="${escapeAttr(tag)}" ${locked?'disabled':''}>${escapeHtml(tag)}</button>`
   ).join('');
   document.getElementById('modalChips').querySelectorAll('.chip').forEach(chip=>{
     chip.onclick = ()=> addQuickTag(id, chip.dataset.tag);
@@ -1527,6 +1556,13 @@ function setStatus(id, status){
   }
   const t = tickets.find(x=>x.id===id);
   if(!t) return;
+  if(isLockedByOther(t)){
+    // Someone else is actively calling this — don't let a stale button click
+    // (or a race with a realtime update) sneak a status change through.
+    warnLocked(t);
+    render();
+    return;
+  }
   t.status = status;
   t.updatedAt = Date.now();
   if(status === 'not_called'){
@@ -1550,12 +1586,15 @@ function setStatus(id, status){
 function updateField(id, field, value){
   const t = tickets.find(x=>x.id===id);
   if(!t) return;
+  if(isLockedByOther(t)) return; // fields are disabled in the UI while locked; this is just a backstop
   t[field] = value;
   t.updatedAt = Date.now();
   scheduleSave();
 }
 
 function deleteTicket(id){
+  const t = tickets.find(x=>x.id===id);
+  if(t && isLockedByOther(t)){ warnLocked(t); return; }
   tickets = tickets.filter(x=>x.id!==id);
   scheduleSave();
   render();
@@ -1622,6 +1661,13 @@ function render(){
   // Keep the Callers modal live if it's open while a sync update or another
   // action changes attributions, instead of showing a stale snapshot.
   if(callersModal.classList.contains('open')) renderCallersModal();
+  // Same for an open detail modal — if someone else claims/releases this
+  // exact ticket while it's being viewed, the lock state (disabled fields,
+  // notice) needs to catch up rather than staying stuck on a stale render.
+  if(currentModalId){
+    if(tickets.some(x=>x.id===currentModalId)) populateModal(currentModalId);
+    else closeModal(); // the ticket was deleted elsewhere while its modal was open
+  }
 
   let list = scoped.slice();
   if(activeFilter === 'due_today') list = list.filter(t=> t.callbackDate===today);
@@ -1654,13 +1700,15 @@ function render(){
 }
 
 function renderTicket(t){
-  const miniButtons = STATUSES.filter(s=>s.key!=='not_called').map(s=>{
-    const cls = t.status===s.key ? (MINI_CLASS[s.key]||'') : '';
-    return `<button class="mini ${cls}" data-status="${s.key}">${s.label}</button>`;
-  }).join('');
-
   const claimActive = isClaimActive(t);
   const claimIsMine = claimActive && t.claimedBy === callerName;
+  const lockedByOther = claimActive && !claimIsMine;
+
+  const miniButtons = STATUSES.filter(s=>s.key!=='not_called').map(s=>{
+    const cls = t.status===s.key ? (MINI_CLASS[s.key]||'') : '';
+    return `<button class="mini ${cls}" data-status="${s.key}" ${lockedByOther?'disabled':''}>${s.label}</button>`;
+  }).join('');
+
   let claimHtml;
   if(claimActive && !claimIsMine){
     claimHtml = `<span class="claim-badge">Being called by ${escapeHtml(t.claimedBy)}</span>`;
@@ -1679,7 +1727,7 @@ function renderTicket(t){
     <div class="claim-row">${claimHtml}</div>
     <div class="action-row">
       ${miniButtons}
-      <button class="mini" data-status="not_called">Reset</button>
+      <button class="mini" data-status="not_called" ${lockedByOther?'disabled':''}>Reset</button>
     </div>
     <div class="toggle-row">
       <button class="link-btn">Edit / notes</button>
