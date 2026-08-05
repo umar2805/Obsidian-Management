@@ -1165,6 +1165,18 @@ function isSameLocalDay(ms){
   return new Date(ms).toDateString() === new Date().toDateString();
 }
 
+// Small {total, called, today} summary for a city's ticket list — computed
+// once locally whenever that city's tickets are saved, then cached on the
+// _cities list doc so picker screens never need to download every city's
+// full ticket data just to show these numbers.
+function computeCityStats(ticketList){
+  return {
+    total: ticketList.length,
+    called: ticketList.filter(t=>t.status!=='not_called').length,
+    today: ticketList.filter(t=>t.status!=='not_called' && isSameLocalDay(t.updatedAt)).length
+  };
+}
+
 function setCallerName(name){
   callerName = name.trim();
   try{ localStorage.setItem('ledger_caller_name', callerName); }catch(e){ /* storage unavailable, fine */ }
@@ -1339,6 +1351,10 @@ async function attemptSave(attempt){
     const { setDoc } = window.__firestore;
     await setDoc(trackerRef, { data: JSON.stringify(tickets), updatedAt: Date.now() });
     showSaveStatus('saved');
+    // Fire-and-forget: this just keeps the picker-screen counts fresh, it's
+    // not part of the actual ticket save, so a failure here shouldn't show
+    // as a save error to the user.
+    if(currentCityId) persistCityStats(currentCityId, computeCityStats(tickets));
   }catch(e){
     console.error('Save failed', e);
     if(attempt < 3){
@@ -1817,11 +1833,72 @@ function slugify(name){
   return s || 'city';
 }
 
+// _cities and _countries are small "index" docs that get read many times per
+// session (startup checks, every picker render, every navigation). Caching
+// them in memory means each only gets fetched from Firestore once per page
+// load — every write below updates the cache in place so it can't go stale
+// within this tab.
+let _citiesCache = null;
+let _countriesCache = null;
+
+async function writeCitiesList(list){
+  const { db, doc, setDoc } = window.__firestore;
+  await setDoc(doc(db, 'tracker', '_cities'), { list });
+  _citiesCache = list;
+}
+async function writeCountriesList(list){
+  const { db, doc, setDoc } = window.__firestore;
+  await setDoc(doc(db, 'tracker', '_countries'), { list });
+  _countriesCache = list;
+}
+
+// Refreshes just one city's cached {total, called, today} numbers on the
+// _cities list doc, so picker screens can show accurate counts by reading
+// this one small doc instead of downloading every city's full ticket list.
+// Called after every successful ticket save (see attemptSave).
+async function persistCityStats(cityId, stats){
+  try{
+    const list = await getCitiesList();
+    const idx = list.findIndex(c=>c.id===cityId);
+    if(idx === -1) return;
+    if(list[idx].stats && list[idx].stats.total===stats.total && list[idx].stats.called===stats.called && list[idx].stats.today===stats.today){
+      return; // unchanged — skip the write
+    }
+    const updated = list.slice();
+    updated[idx] = { ...updated[idx], stats };
+    await writeCitiesList(updated);
+  }catch(e){
+    // Non-fatal — worst case the picker screens show slightly stale counts
+    // until the next successful save for this city.
+    console.error('Failed to cache city stats', cityId, e);
+  }
+}
+
+// Returns a city's cached stats instantly (no network call) once it has
+// them. Only a city that predates stats caching needs a one-off fetch of
+// its ticket data to backfill — after that it's cached on the list doc and
+// this fallback never runs again for that city.
+async function getOrBackfillCityStats(city){
+  if(city.stats) return city.stats;
+  try{
+    const { db, doc, getDoc } = window.__firestore;
+    const snap = await getDoc(doc(db, 'tracker', city.id));
+    const cTickets = (snap.exists() && snap.data().data) ? JSON.parse(snap.data().data) : [];
+    const stats = computeCityStats(cTickets);
+    persistCityStats(city.id, stats); // fire-and-forget — cache it for next time
+    return stats;
+  }catch(e){
+    console.error('Failed to backfill stats for city', city.id, e);
+    return { total:0, called:0, today:0 };
+  }
+}
+
 async function ensureCitiesAndMigrate(){
   const { db, doc, getDoc, setDoc } = window.__firestore;
   const citiesRef = doc(db, 'tracker', '_cities');
   const snap = await getDoc(citiesRef);
   if(snap.exists() && Array.isArray(snap.data().list) && snap.data().list.length){
+    _citiesCache = snap.data().list; // prime the cache now, saves a re-fetch moments later
     return; // cities list already set up, nothing to migrate
   }
   // No cities list yet — check for the old single-shared-doc data and fold it in as
@@ -1835,16 +1912,20 @@ async function ensureCitiesAndMigrate(){
     if(!lisbonSnap.exists()){
       await setDoc(lisbonRef, { data: legacySnap.data().data, updatedAt: Date.now() });
     }
-    await setDoc(citiesRef, { list: [{ id:'lisbon', name:'Lisbon', createdAt: Date.now() }] });
+    let stats = { total:0, called:0, today:0 };
+    try{ stats = computeCityStats(JSON.parse(legacySnap.data().data)); }catch(e){ /* fall back to zeros */ }
+    await writeCitiesList([{ id:'lisbon', name:'Lisbon', createdAt: Date.now(), stats }]);
   } else {
-    await setDoc(citiesRef, { list: [] });
+    await writeCitiesList([]);
   }
 }
 
 async function getCitiesList(){
+  if(_citiesCache) return _citiesCache;
   const { db, doc, getDoc } = window.__firestore;
   const snap = await getDoc(doc(db, 'tracker', '_cities'));
-  return (snap.exists() && Array.isArray(snap.data().list)) ? snap.data().list : [];
+  _citiesCache = (snap.exists() && Array.isArray(snap.data().list)) ? snap.data().list : [];
+  return _citiesCache;
 }
 
 async function addCity(name, countryId){
@@ -1861,48 +1942,50 @@ async function addCity(name, countryId){
   if(!citySnap.exists()){
     await setDoc(cityRef, { data: JSON.stringify([]), updatedAt: Date.now() });
   }
-  await setDoc(doc(db, 'tracker', '_cities'), { list: [...list, { id, name: name.trim(), createdAt: Date.now(), countryId }] });
+  await writeCitiesList([...list, { id, name: name.trim(), createdAt: Date.now(), countryId, stats:{total:0,called:0,today:0} }]);
   return id;
 }
 
 // ---- countries (one level up from cities) ----
 
 async function getCountriesList(){
+  if(_countriesCache) return _countriesCache;
   const { db, doc, getDoc } = window.__firestore;
   const snap = await getDoc(doc(db, 'tracker', '_countries'));
-  return (snap.exists() && Array.isArray(snap.data().list)) ? snap.data().list : [];
+  _countriesCache = (snap.exists() && Array.isArray(snap.data().list)) ? snap.data().list : [];
+  return _countriesCache;
 }
 
 async function addCountry(name){
-  const { db, doc, getDoc, setDoc } = window.__firestore;
   const list = await getCountriesList();
   const existingIds = new Set(list.map(c=>c.id));
   let id = slugify(name);
   let uniqueId = id, suffix = 2;
   while(existingIds.has(uniqueId)){ uniqueId = id + '-' + suffix; suffix++; }
   id = uniqueId;
-  await setDoc(doc(db, 'tracker', '_countries'), { list: [...list, { id, name: name.trim(), createdAt: Date.now() }] });
+  await writeCountriesList([...list, { id, name: name.trim(), createdAt: Date.now() }]);
   return id;
 }
 
 async function renameCountry(id, newName){
-  const { db, doc, setDoc } = window.__firestore;
   const list = await getCountriesList();
   const updated = list.map(c=> c.id===id ? { ...c, name: newName } : c);
-  await setDoc(doc(db, 'tracker', '_countries'), { list: updated });
+  await writeCountriesList(updated);
   if(currentCountryId === id){
     document.getElementById('cityPickerTitle').textContent = newName;
   }
 }
 
 async function ensureCountriesAndMigrate(){
-  const { db, doc, getDoc, setDoc } = window.__firestore;
+  const { db, doc, getDoc } = window.__firestore;
   const countriesRef = doc(db, 'tracker', '_countries');
   const snap = await getDoc(countriesRef);
   let countries = (snap.exists() && Array.isArray(snap.data().list)) ? snap.data().list : null;
   if(countries === null){
     countries = [];
-    await setDoc(countriesRef, { list: countries });
+    await writeCountriesList(countries);
+  } else {
+    _countriesCache = countries; // prime the cache now, saves a re-fetch moments later
   }
 
   // Any city that predates the country layer (or otherwise has no countryId) gets
@@ -1915,18 +1998,17 @@ async function ensureCountriesAndMigrate(){
     if(!unsorted){
       unsorted = { id:'unsorted', name:'Unsorted', createdAt: Date.now() };
       countries = [...countries, unsorted];
-      await setDoc(countriesRef, { list: countries });
+      await writeCountriesList(countries);
     }
     const updatedCities = cities.map(c => c.countryId ? c : { ...c, countryId: unsorted.id });
-    await setDoc(doc(db, 'tracker', '_cities'), { list: updatedCities });
+    await writeCitiesList(updatedCities);
   }
 }
 
 async function renameCity(id, newName){
-  const { db, doc, setDoc } = window.__firestore;
   const list = await getCitiesList();
   const updated = list.map(c=> c.id===id ? { ...c, name: newName } : c);
-  await setDoc(doc(db, 'tracker', '_cities'), { list: updated });
+  await writeCitiesList(updated);
   // The city's own doc only stores tickets, not its display name, so no need to touch it —
   // just update the board title in place if that city happens to be open right now.
   if(currentCityId === id){
@@ -1934,13 +2016,13 @@ async function renameCity(id, newName){
   }
 }
 
+
 async function renderPicker(countryId){
   const cityGrid = document.getElementById('cityGrid');
   const summaryEl = document.getElementById('combinedSummary');
   cityGrid.innerHTML = `<div class="picker-empty">Loading cities…</div>`;
   summaryEl.innerHTML = '';
 
-  const { db, doc, getDoc } = window.__firestore;
   const list = (await getCitiesList()).filter(c=>c.countryId === countryId);
 
   if(list.length === 0){
@@ -1948,12 +2030,13 @@ async function renderPicker(countryId){
     return;
   }
 
-  // Show the cards right away with just names, so the page isn't blank while counts load.
+  // Cards render with counts already in place when available — cached stats
+  // come along with the city list itself, no per-city fetch needed.
   cityGrid.innerHTML = list.map(c=> `
     <div class="city-card" data-city="${escapeAttr(c.id)}">
       <button class="city-edit-btn" data-city="${escapeAttr(c.id)}" title="Rename city" aria-label="Rename city">&#9998;</button>
       <div class="city-name">${escapeHtml(c.name)}</div>
-      <div class="city-stats" id="cityStats-${escapeAttr(c.id)}">Loading…</div>
+      <div class="city-stats" id="cityStats-${escapeAttr(c.id)}">${c.stats ? `${c.stats.total} total · ${c.stats.called} called · ${c.stats.today} today` : 'Loading…'}</div>
     </div>
   `).join('');
   cityGrid.querySelectorAll('.city-card').forEach(card=>{
@@ -1976,23 +2059,9 @@ async function renderPicker(countryId){
     };
   });
 
-  // Combined total is just summed counts per city, read from each city's doc —
-  // never a merged ticket list, so restaurants from different cities stay apart.
-  // Fetched in parallel (not one city at a time) so this doesn't get slower as
-  // more cities get added.
-  const results = await Promise.all(list.map(async c=>{
-    let total = 0, called = 0, today = 0;
-    try{
-      const cSnap = await getDoc(doc(db, 'tracker', c.id));
-      const cTickets = (cSnap.exists() && cSnap.data().data) ? JSON.parse(cSnap.data().data) : [];
-      total = cTickets.length;
-      called = cTickets.filter(t=>t.status!=='not_called').length;
-      today = cTickets.filter(t=>t.status!=='not_called' && isSameLocalDay(t.updatedAt)).length;
-    }catch(e){
-      console.error('Failed to load counts for city', c.id, e);
-    }
-    return { id: c.id, total, called, today };
-  }));
+  // Reads cached stats off each city entry — only a city that predates stats
+  // caching triggers an actual fetch, and only once, ever, for that city.
+  const results = await Promise.all(list.map(async c=> ({ id: c.id, ...(await getOrBackfillCityStats(c)) })));
 
   let combinedTotal = 0, combinedCalled = 0, combinedToday = 0;
   results.forEach(r=>{
@@ -2014,7 +2083,6 @@ async function renderCountryPicker(){
   grid.innerHTML = `<div class="picker-empty">Loading countries…</div>`;
   summaryEl.innerHTML = '';
 
-  const { db, doc, getDoc } = window.__firestore;
   const countries = await getCountriesList();
   const cities = await getCitiesList();
 
@@ -2051,25 +2119,12 @@ async function renderCountryPicker(){
     };
   });
 
-  // Combined totals per country = sum over that country's cities' city docs.
-  // Fetched in parallel, same approach as the city picker's combined summary,
-  // so this doesn't get slower as more cities and countries get added.
+  // Combined totals per country = sum of each city's cached stats — reads
+  // cached numbers off the (already-fetched) cities list rather than
+  // downloading every city's full ticket data.
   const results = await Promise.all(countries.map(async co=>{
     const citiesInCountry = cities.filter(c=>c.countryId === co.id);
-    const sums = await Promise.all(citiesInCountry.map(async c=>{
-      try{
-        const cSnap = await getDoc(doc(db, 'tracker', c.id));
-        const cTickets = (cSnap.exists() && cSnap.data().data) ? JSON.parse(cSnap.data().data) : [];
-        return {
-          total: cTickets.length,
-          called: cTickets.filter(t=>t.status!=='not_called').length,
-          today: cTickets.filter(t=>t.status!=='not_called' && isSameLocalDay(t.updatedAt)).length
-        };
-      }catch(e){
-        console.error('Failed to load counts for city', c.id, e);
-        return { total:0, called:0, today:0 };
-      }
-    }));
+    const sums = await Promise.all(citiesInCountry.map(getOrBackfillCityStats));
     const total = sums.reduce((a,s)=>a+s.total,0);
     const called = sums.reduce((a,s)=>a+s.called,0);
     const today = sums.reduce((a,s)=>a+s.today,0);
