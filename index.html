@@ -156,6 +156,112 @@
     .board-topbar{top:10px;left:10px;gap:8px;}
   }
 
+  /* board hamburger menu — mirrors board-topbar but pinned top-right */
+  .board-menu-wrap{
+    position:fixed;
+    top:16px;
+    right:20px;
+    z-index:50;
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+    gap:8px;
+    transition:opacity 0.2s ease, transform 0.2s ease;
+  }
+  .board-menu-wrap.is-scrolled{
+    opacity:0;
+    transform:translateY(-8px);
+    pointer-events:none;
+  }
+  .board-menu-row{
+    display:flex;
+    align-items:center;
+    gap:16px;
+  }
+  @media (max-width:600px){
+    .board-menu-wrap{top:10px;right:10px;gap:6px;}
+    .board-menu-row{gap:8px;}
+  }
+  .board-stats{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:6px 14px;
+    border:1px solid var(--gold-dim);
+    border-radius:2px;
+    background:rgba(20,14,10,0.55);
+  }
+  .board-stat{text-align:center;}
+  .board-stat b{
+    display:block;
+    font-size:15px;
+    font-family:Georgia,serif;
+    color:var(--gold-soft);
+    line-height:1.1;
+  }
+  .board-stat small{
+    display:block;
+    color:#9a8a72;
+    font-size:8px;
+    text-transform:uppercase;
+    letter-spacing:0.1em;
+    margin-top:1px;
+  }
+  @media (max-width:600px){
+    .board-stats{gap:8px;padding:5px 9px;}
+    .board-stat small{display:none;}
+    .board-stat b{font-size:12px;}
+  }
+  @media (max-width:420px){
+    /* very narrow phones — keep just the count, drop the border/box chrome so
+       it never collides with the "← Cities" bar pinned on the opposite corner */
+    .board-stats{gap:6px;padding:4px 6px;border-color:transparent;background:transparent;}
+  }
+  .hamburger-btn{
+    width:38px;height:38px;
+    border:1px solid var(--gold-dim);
+    border-radius:2px;
+    background:rgba(20,14,10,0.55);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:4px;
+    cursor:pointer;
+  }
+  .hamburger-btn span{
+    display:block;
+    width:16px;height:2px;
+    background:var(--gold);
+  }
+  .hamburger-btn:hover{border-color:var(--gold-soft);background:rgba(201,162,39,0.12);}
+  .board-menu-dropdown{
+    position:absolute;
+    top:46px;
+    right:0;
+    min-width:180px;
+    background:var(--parchment);
+    border:1px solid var(--gold-dim);
+    border-radius:2px;
+    box-shadow:0 8px 24px rgba(0,0,0,0.4);
+    padding:6px;
+    display:none;
+    flex-direction:column;
+  }
+  .board-menu-dropdown.open{display:flex;}
+  .board-menu-dropdown button{
+    background:transparent;
+    border:none;
+    text-align:left;
+    padding:10px 12px;
+    font-size:13px;
+    color:var(--ink);
+    font-family:inherit;
+    cursor:pointer;
+    border-radius:2px;
+  }
+  .board-menu-dropdown button:hover{background:rgba(201,162,39,0.15);}
+
   /* controls */
   .controls{
     display:flex;
@@ -206,20 +312,45 @@
   .btn:focus-visible, button:focus-visible, a:focus-visible{outline:2px solid var(--gold-soft);outline-offset:2px;}
 
   /* filter pills */
+  .pills-wrap{
+    display:flex;
+    align-items:flex-end;
+    gap:6px;
+    margin-bottom:18px;
+  }
+  .pills-scroll-wrap{
+    position:relative;
+    flex:1;
+    min-width:0;
+  }
+  .pills-scroll-wrap::after{
+    content:"";
+    position:absolute;
+    top:0; right:0; bottom:2px;
+    width:40px;
+    background:linear-gradient(to right, transparent, var(--leather) 70%);
+    pointer-events:none;
+    opacity:0;
+    transition:opacity 0.15s;
+  }
+  .pills-scroll-wrap.has-overflow::after{opacity:1;}
   .pills{
     display:flex;
-    gap:4px;
+    gap:2px;
     overflow-x:auto;
+    flex-wrap:nowrap;
     padding-bottom:2px;
-    margin-bottom:18px;
+    margin-bottom:0;
     border-bottom:1px solid rgba(201,162,39,0.2);
+    scrollbar-width:thin;
   }
   .pill{
     background:transparent;
     color:#a8977c;
-    padding:9px 14px 11px;
+    padding:9px 11px 11px;
     font-size:11px;
     white-space:nowrap;
+    flex-shrink:0;
     text-transform:uppercase;
     letter-spacing:0.06em;
     border-bottom:2px solid transparent;
@@ -230,6 +361,54 @@
     color:var(--gold-soft);
     border-bottom-color:var(--gold);
   }
+
+  /* "More" pill — pinned outside the scroll area, holds Tag chips / Due today */
+  .pill-more-wrap{
+    position:relative;
+    flex-shrink:0;
+    border-bottom:1px solid rgba(201,162,39,0.2);
+  }
+  .pill-more{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+  }
+  .pill-more .caret{font-size:9px;opacity:0.7;}
+  .pill-more-dropdown{
+    position:absolute;
+    top:calc(100% + 8px);
+    right:0;
+    min-width:150px;
+    background:var(--parchment);
+    border:1px solid var(--gold-dim);
+    border-radius:2px;
+    box-shadow:0 8px 24px rgba(0,0,0,0.4);
+    padding:6px;
+    display:none;
+    flex-direction:column;
+    z-index:40;
+  }
+  .pill-more-dropdown.open{display:flex;}
+  .pill-more-item{
+    background:transparent;
+    border:none;
+    text-align:left;
+    padding:10px 12px;
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    color:var(--ink);
+    font-family:inherit;
+    cursor:pointer;
+    border-radius:2px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:12px;
+  }
+  .pill-more-item b{font-family:Georgia,serif;font-weight:700;font-size:12px;}
+  .pill-more-item:hover{background:rgba(201,162,39,0.15);}
+  .pill-more-item.active{background:rgba(201,162,39,0.25);font-weight:600;}
   .pill:hover:not(.active){color:var(--parchment);}
 
   /* panels */
@@ -417,9 +596,8 @@
   .identity-bar{
     display:flex;
     align-items:center;
-    justify-content:center;
+    justify-content:flex-end;
     gap:8px;
-    margin-top:14px;
     font-size:12px;
     color:#a8977c;
   }
@@ -429,6 +607,10 @@
     width:120px;
   }
   .identity-bar .link-btn{color:#a8977c;}
+  @media (max-width:600px){
+    .identity-bar{font-size:11px;gap:6px;}
+    .identity-bar input[type=text]{width:90px;padding:5px 8px;font-size:11px;}
+  }
 
   /* claim badge / button */
   .claim-row{
@@ -536,17 +718,17 @@
   }
   .modal-close{
     position:absolute;
-    top:14px;
-    right:14px;
+    top:12px;
+    right:12px;
     background:transparent;
     color:var(--ink-soft);
-    font-size:20px;
+    font-size:30px;
     line-height:1;
-    padding:4px 8px;
+    padding:6px 10px;
   }
   .modal-close:hover{color:var(--ink);}
   .modal-box h3{
-    margin:0 20px 14px 0;
+    margin:0 34px 14px 0;
     font-family:Georgia,serif;
     font-style:italic;
     font-size:18px;
@@ -747,17 +929,25 @@
     <a href="#/" class="back-cta" id="boardBackCta">&larr; Cities</a>
     <div id="saveStatus"></div>
   </div>
+  <div class="board-menu-wrap">
+    <div class="board-menu-row">
+      <div class="board-stats" id="boardStats">
+        <div class="board-stat"><b id="statTotal">0</b><small>Total</small></div>
+        <div class="board-stat"><b id="statCalled">0</b><small>Called</small></div>
+        <div class="board-stat"><b id="statToday">0</b><small>Today</small></div>
+        <div class="board-stat"><b id="statLeads">0</b><small>Leads</small></div>
+        <div class="board-stat"><b id="statSold">0</b><small>Sold</small></div>
+      </div>
+      <button class="hamburger-btn" id="boardMenuBtn" aria-label="Menu"><span></span><span></span><span></span></button>
+      <div class="board-menu-dropdown" id="boardMenuDropdown">
+        <button type="button" id="btnExportBoard">Export CSV</button>
+      </div>
+    </div>
+    <div class="identity-bar" id="identityBar"></div>
+  </div>
   <header>
     <h1 class="serif" id="cityTitle">The Ledger</h1>
     <p class="tagline">Every restaurant you've pitched, kept in perfect order.</p>
-    <div class="nameplate">
-      <div class="stat"><b id="statTotal">0</b><small>Total</small></div>
-      <div class="stat"><b id="statCalled">0</b><small>Called</small></div>
-      <div class="stat"><b id="statToday">0</b><small>Today</small></div>
-      <div class="stat"><b id="statLeads">0</b><small>Leads</small></div>
-      <div class="stat"><b id="statSold">0</b><small>Sold</small></div>
-    </div>
-    <div class="identity-bar" id="identityBar"></div>
     <div class="rule"><span class="rule-mark"></span></div>
   </header>
 
@@ -765,7 +955,6 @@
     <input type="text" id="search" placeholder="Search restaurant name…">
     <button class="btn gold" id="btnAdd">+ Add</button>
     <button class="btn ghost" id="btnBulk">Bulk paste</button>
-    <button class="btn ghost" id="btnExportBoard" title="Download this board as a CSV file">Export CSV</button>
   </div>
 
   <div class="panel" id="panelAdd">
@@ -819,7 +1008,17 @@
     </div>
   </div>
 
-  <div class="pills" id="pills"></div>
+  <div class="pills-wrap">
+    <div class="pills-scroll-wrap" id="pillsScrollWrap">
+      <div class="pills" id="pills"></div>
+    </div>
+    <div class="pill-more-wrap">
+      <button class="pill pill-more" id="moreFilterBtn">More <span class="caret">&#9662;</span></button>
+      <div class="pill-more-dropdown" id="moreFilterDropdown">
+        <button class="pill-more-item" id="moreItemTagged" data-f="tagged">Tag chips <b id="moreCountTagged">0</b></button>
+      </div>
+    </div>
+  </div>
 
   <div id="listArea"></div>
 </div>
@@ -900,6 +1099,14 @@ const MINI_CLASS = {
   lead:'active-green', converted:'active-green', owner_not_in:'active-steel'
 };
 const QUICK_TAGS = ['No answer','No budget','Already has a site','Not interested','Interested — send info'];
+// Chips insert their exact label straight into the free-text notes field (see addQuickTag),
+// so "has a tag" just means the notes string contains one of those exact phrases. This can't
+// perfectly distinguish a clicked chip from someone typing the same phrase by hand, but that's
+// a reasonable trade-off since chips aren't stored as a separate structured field.
+function hasAnyQuickTag(t){
+  const notes = t.notes || '';
+  return QUICK_TAGS.some(tag=> notes.includes(tag));
+}
 const CLAIM_EXPIRY_MS = 20 * 60 * 1000; // 20 minutes
 
 let tickets = [];
@@ -914,6 +1121,38 @@ try{ callerName = localStorage.getItem('ledger_caller_name') || ''; }catch(e){ /
 
 const listArea = document.getElementById('listArea');
 const pillsEl = document.getElementById('pills');
+const pillsWrapEl = document.getElementById('pillsScrollWrap');
+
+function updatePillsFade(){
+  if(!pillsWrapEl) return;
+  const hasMoreToScroll = pillsEl.scrollWidth - pillsEl.clientWidth - pillsEl.scrollLeft > 4;
+  pillsWrapEl.classList.toggle('has-overflow', hasMoreToScroll);
+}
+pillsEl.addEventListener('scroll', updatePillsFade);
+window.addEventListener('resize', updatePillsFade);
+
+// --- "More" filter dropdown (Tag chips / Due today) ---
+const moreFilterBtn = document.getElementById('moreFilterBtn');
+const moreFilterDropdown = document.getElementById('moreFilterDropdown');
+moreFilterBtn.addEventListener('click', (e)=>{
+  e.stopPropagation();
+  moreFilterDropdown.classList.toggle('open');
+});
+moreFilterDropdown.querySelectorAll('.pill-more-item').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    activeFilter = btn.dataset.f;
+    moreFilterDropdown.classList.remove('open');
+    render();
+  });
+});
+document.addEventListener('click', (e)=>{
+  if(moreFilterDropdown.classList.contains('open') && !moreFilterDropdown.contains(e.target) && e.target !== moreFilterBtn){
+    moreFilterDropdown.classList.remove('open');
+  }
+});
+document.addEventListener('keydown', e=>{
+  if(e.key === 'Escape') moreFilterDropdown.classList.remove('open');
+});
 
 function uid(){return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);}
 
@@ -1193,6 +1432,7 @@ function render(){
   const counts = {all: scoped.length};
   STATUSES.forEach(s=> counts[s.key] = scoped.filter(t=>t.status===s.key).length);
   const dueTodayCount = scoped.filter(t=> t.callbackDate===today).length;
+  const taggedCount = scoped.filter(t=> hasAnyQuickTag(t)).length;
 
   let pillsHtml = `<button class="pill ${activeFilter==='all'?'active':''}" data-f="all">All<b>${counts.all}</b></button>`;
   STATUSES.forEach(s=>{
@@ -1203,9 +1443,17 @@ function render(){
   pillsEl.querySelectorAll('.pill').forEach(btn=>{
     btn.onclick = ()=>{ activeFilter = btn.dataset.f; render(); };
   });
+  updatePillsFade();
+
+  // "More" dropdown — just Tag chips now
+  moreFilterBtn.classList.toggle('active', activeFilter === 'tagged');
+  moreFilterBtn.innerHTML = (activeFilter === 'tagged' ? 'Tag chips' : 'More') + ' <span class="caret">&#9662;</span>';
+  document.getElementById('moreCountTagged').textContent = taggedCount;
+  document.getElementById('moreItemTagged').classList.toggle('active', activeFilter === 'tagged');
 
   let list = scoped.slice();
   if(activeFilter === 'due_today') list = list.filter(t=> t.callbackDate===today);
+  else if(activeFilter === 'tagged') list = list.filter(t=> hasAnyQuickTag(t));
   else if(activeFilter !== 'all') list = list.filter(t=>t.status===activeFilter);
   list.sort((a,b)=> a.name.localeCompare(b.name));
 
@@ -1305,6 +1553,22 @@ function ticketToRow(t, extraCols){
     t.updatedAt ? new Date(t.updatedAt).toLocaleString() : ''];
 }
 
+// --- board hamburger menu ---
+const boardMenuBtn = document.getElementById('boardMenuBtn');
+const boardMenuDropdown = document.getElementById('boardMenuDropdown');
+boardMenuBtn.addEventListener('click', (e)=>{
+  e.stopPropagation();
+  boardMenuDropdown.classList.toggle('open');
+});
+document.addEventListener('click', (e)=>{
+  if(boardMenuDropdown.classList.contains('open') && !boardMenuDropdown.contains(e.target) && e.target !== boardMenuBtn){
+    boardMenuDropdown.classList.remove('open');
+  }
+});
+document.addEventListener('keydown', e=>{
+  if(e.key === 'Escape') boardMenuDropdown.classList.remove('open');
+});
+
 document.getElementById('btnExportBoard').onclick = ()=>{
   const csv = toCsv(
     ['Name','Phone','Status','Callback date','Notes','Last updated'],
@@ -1312,6 +1576,7 @@ document.getElementById('btnExportBoard').onclick = ()=>{
   );
   const cityLabel = (document.getElementById('cityTitle').textContent || 'board').trim();
   downloadCsv(`${cityLabel.replace(/[^\w\- ]+/g,'')} — restaurants.csv`, csv);
+  boardMenuDropdown.classList.remove('open');
 };
 
 document.getElementById('btnExportAll').onclick = async (e)=>{
@@ -1856,7 +2121,7 @@ function showBoard(countryId, cityId){
   document.getElementById('boardView').style.display = 'block';
   document.getElementById('boardBackCta').href = '#/country/' + countryId;
   // Reset per-city UI state so switching cities doesn't carry over a stale filter/search.
-  activeFilter = 'not_called';
+  activeFilter = 'all';
   searchTerm = '';
   document.getElementById('search').value = '';
   document.getElementById('cityTitle').textContent = 'The Ledger';
@@ -1879,6 +2144,24 @@ function router(){
   showCountryPicker();
 }
 window.addEventListener('hashchange', router);
+
+// Fixed top-right stats/menu/identity bar should get out of the way once the
+// user starts scrolling the ticket list, instead of floating over it.
+(function(){
+  const menuWrap = document.querySelector('.board-menu-wrap');
+  if(!menuWrap) return;
+  const SCROLL_HIDE_THRESHOLD = 10;
+  function updateMenuWrapVisibility(){
+    const shouldHide = window.scrollY > SCROLL_HIDE_THRESHOLD;
+    menuWrap.classList.toggle('is-scrolled', shouldHide);
+    if(shouldHide){
+      const dropdown = document.getElementById('boardMenuDropdown');
+      if(dropdown) dropdown.classList.remove('open');
+    }
+  }
+  window.addEventListener('scroll', updateMenuWrapVisibility, {passive:true});
+  updateMenuWrapVisibility();
+})();
 
 // ---- add-city modal ----
 const addCityModal = document.getElementById('addCityModal');
