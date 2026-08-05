@@ -139,39 +139,49 @@
     #saveStatus{padding:7px 12px;font-size:10px;max-width:60vw;}
   }
 
+  /* board-view sticky header: back link + save status on the left, stats/menu
+     on the right. Sticky (not fixed) so it reserves real space in the page
+     flow — ticket cards start below it and never render underneath it — and
+     it simply sticks to the top of the viewport once you scroll past it. */
+  .board-header-bar{
+    position:sticky;
+    top:0;
+    z-index:50;
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    flex-wrap:wrap;
+    gap:10px;
+    background:var(--leather);
+    padding:16px 20px;
+    margin:-32px -20px 20px;
+  }
+  @media (max-width:600px){
+    .board-header-bar{padding:10px;margin:-32px -20px 16px;}
+  }
+
   /* board-view top-left bar: exit link + save status, side by side */
   .board-topbar{
-    position:fixed;
-    top:16px;
-    left:20px;
-    z-index:50;
     display:flex;
     align-items:center;
     gap:10px;
   }
   .board-topbar .back-cta{
-    position:static; /* the wrapper handles fixed placement now */
-  }
-  @media (max-width:600px){
-    .board-topbar{top:10px;left:10px;gap:8px;}
+    position:static; /* the sticky board-header-bar handles placement now */
+    box-shadow:none;
   }
 
   /* board hamburger menu — mirrors board-topbar but pinned top-right */
   .board-menu-wrap{
-    position:fixed;
-    top:16px;
-    right:20px;
-    z-index:50;
     display:flex;
     flex-direction:column;
     align-items:flex-end;
     gap:8px;
-    transition:opacity 0.2s ease, transform 0.2s ease;
-  }
-  .board-menu-wrap.is-scrolled{
-    opacity:0;
-    transform:translateY(-8px);
-    pointer-events:none;
+    background:var(--leather-2);
+    border:1px solid var(--gold-dim);
+    border-radius:2px;
+    padding:8px 10px;
+    box-shadow:0 4px 12px rgba(0,0,0,0.35);
   }
   .board-menu-row{
     display:flex;
@@ -179,7 +189,7 @@
     gap:16px;
   }
   @media (max-width:600px){
-    .board-menu-wrap{top:10px;right:10px;gap:6px;}
+    .board-menu-wrap{gap:6px;padding:6px 8px;}
     .board-menu-row{gap:8px;}
   }
   .board-stats{
@@ -189,7 +199,7 @@
     padding:6px 14px;
     border:1px solid var(--gold-dim);
     border-radius:2px;
-    background:rgba(20,14,10,0.55);
+    background:var(--leather-2);
   }
   .board-stat{text-align:center;}
   .board-stat b{
@@ -221,7 +231,7 @@
     width:38px;height:38px;
     border:1px solid var(--gold-dim);
     border-radius:2px;
-    background:rgba(20,14,10,0.55);
+    background:var(--leather-2);
     display:flex;
     flex-direction:column;
     align-items:center;
@@ -870,6 +880,29 @@
     padding:50px 20px;
     color:#8f8064;
   }
+
+  /* skeleton loading — shimmering placeholders shown while picker data
+     (country/city cards, combined stat totals) is still being fetched */
+  @keyframes skeleton-shimmer{
+    0%{background-position:100% 50%;}
+    100%{background-position:0% 50%;}
+  }
+  .skeleton-bar{
+    display:block;
+    border-radius:2px;
+    background:linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.13) 37%, rgba(255,255,255,0.05) 63%);
+    background-size:400% 100%;
+    animation:skeleton-shimmer 1.4s ease infinite;
+  }
+  .skeleton-bar.on-parchment{
+    background:linear-gradient(90deg, rgba(0,0,0,0.07) 25%, rgba(0,0,0,0.14) 37%, rgba(0,0,0,0.07) 63%);
+    background-size:400% 100%;
+  }
+  .city-card.skeleton-card{cursor:default;}
+  .city-card.skeleton-card:hover{transform:none;box-shadow:0 6px 16px rgba(0,0,0,0.3);}
+  .ticket.skeleton-card{cursor:default;}
+  .ticket.skeleton-card:hover{transform:none;box-shadow:0 6px 16px rgba(0,0,0,0.3);}
+
 </style>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
@@ -925,13 +958,14 @@
 </div>
 
 <div class="wrap" id="boardView" style="display:none;">
-  <div class="board-topbar">
-    <a href="#/" class="back-cta" id="boardBackCta">&larr; Cities</a>
-    <div id="saveStatus"></div>
-  </div>
-  <div class="board-menu-wrap">
-    <div class="board-menu-row">
-      <div class="board-stats" id="boardStats">
+  <div class="board-header-bar">
+    <div class="board-topbar">
+      <a href="#/" class="back-cta" id="boardBackCta">&larr; Cities</a>
+      <div id="saveStatus"></div>
+    </div>
+    <div class="board-menu-wrap">
+      <div class="board-menu-row">
+        <div class="board-stats" id="boardStats">
         <div class="board-stat"><b id="statTotal">0</b><small>Total</small></div>
         <div class="board-stat"><b id="statCalled">0</b><small>Called</small></div>
         <div class="board-stat"><b id="statToday">0</b><small>Today</small></div>
@@ -944,6 +978,7 @@
       </div>
     </div>
     <div class="identity-bar" id="identityBar"></div>
+    </div>
   </div>
   <header>
     <h1 class="serif" id="cityTitle">The Ledger</h1>
@@ -1175,6 +1210,48 @@ function computeCityStats(ticketList){
     called: ticketList.filter(t=>t.status!=='not_called').length,
     today: ticketList.filter(t=>t.status!=='not_called' && isSameLocalDay(t.updatedAt)).length
   };
+}
+
+// ---- skeleton loading placeholders (picker screens) --------------------
+// Shown the moment a picker screen opens, before the country/city list has
+// come back from Firestore, so there's never a blank page or a plain
+// "Loading…" wall of text — just shapes standing in for what's about to
+// appear in the same spot.
+function skeletonCardsHtml(count){
+  let html = '';
+  for(let i=0; i<count; i++){
+    html += `
+    <div class="city-card skeleton-card">
+      <div class="skeleton-bar on-parchment" style="width:${55 + (i%3)*10}%;height:16px;margin-bottom:10px;"></div>
+      <div class="skeleton-bar on-parchment" style="width:${75 - (i%3)*8}%;height:11px;"></div>
+    </div>`;
+  }
+  return html;
+}
+function skeletonSummaryHtml(){
+  return Array.from({length:3}).map(()=> `
+    <div class="stat">
+      <div class="skeleton-bar" style="width:30px;height:22px;margin:0 auto 4px;"></div>
+      <div class="skeleton-bar" style="width:40px;height:9px;margin:0 auto;"></div>
+    </div>
+  `).join('');
+}
+// Same idea, for the board view: placeholder restaurant cards shown while
+// loadTickets() is fetching that city's ticket list from Firestore.
+function skeletonTicketsHtml(count){
+  let html = '';
+  for(let i=0; i<count; i++){
+    html += `
+    <div class="ticket skeleton-card">
+      <div class="skeleton-bar on-parchment" style="width:${58 + (i%3)*12}%;height:17px;margin-bottom:14px;"></div>
+      <div class="skeleton-bar on-parchment" style="width:36%;height:11px;margin-bottom:16px;"></div>
+      <div class="skeleton-bar on-parchment" style="width:100%;height:32px;"></div>
+    </div>`;
+  }
+  return html;
+}
+function skeletonStatValueHtml(){
+  return '<span class="skeleton-bar" style="width:18px;height:14px;display:inline-block;"></span>';
 }
 
 function setCallerName(name){
@@ -2020,13 +2097,14 @@ async function renameCity(id, newName){
 async function renderPicker(countryId){
   const cityGrid = document.getElementById('cityGrid');
   const summaryEl = document.getElementById('combinedSummary');
-  cityGrid.innerHTML = `<div class="picker-empty">Loading cities…</div>`;
-  summaryEl.innerHTML = '';
+  cityGrid.innerHTML = skeletonCardsHtml(3);
+  summaryEl.innerHTML = skeletonSummaryHtml();
 
   const list = (await getCitiesList()).filter(c=>c.countryId === countryId);
 
   if(list.length === 0){
     cityGrid.innerHTML = `<div class="picker-empty">No cities yet — add your first one below.</div>`;
+    summaryEl.innerHTML = '';
     return;
   }
 
@@ -2036,7 +2114,8 @@ async function renderPicker(countryId){
     <div class="city-card" data-city="${escapeAttr(c.id)}">
       <button class="city-edit-btn" data-city="${escapeAttr(c.id)}" title="Rename city" aria-label="Rename city">&#9998;</button>
       <div class="city-name">${escapeHtml(c.name)}</div>
-      <div class="city-stats" id="cityStats-${escapeAttr(c.id)}">${c.stats ? `${c.stats.total} total · ${c.stats.called} called · ${c.stats.today} today` : 'Loading…'}</div>
+      <div class="city-stats" id="cityStats-${escapeAttr(c.id)}">${c.stats ? `${c.stats.total} total · ${c.stats.called} called · ${c.stats.today} today` : `<div class="skeleton-bar on-parchment" style="width:70%;height:11px;"></div>`}</div>
+
     </div>
   `).join('');
   cityGrid.querySelectorAll('.city-card').forEach(card=>{
@@ -2080,14 +2159,15 @@ async function renderPicker(countryId){
 async function renderCountryPicker(){
   const grid = document.getElementById('countryGrid');
   const summaryEl = document.getElementById('countryCombinedSummary');
-  grid.innerHTML = `<div class="picker-empty">Loading countries…</div>`;
-  summaryEl.innerHTML = '';
+  grid.innerHTML = skeletonCardsHtml(3);
+  summaryEl.innerHTML = skeletonSummaryHtml();
 
   const countries = await getCountriesList();
   const cities = await getCitiesList();
 
   if(countries.length === 0){
     grid.innerHTML = `<div class="picker-empty">No countries yet — add your first one below.</div>`;
+    summaryEl.innerHTML = '';
     return;
   }
 
@@ -2096,7 +2176,7 @@ async function renderCountryPicker(){
     <div class="city-card" data-country="${escapeAttr(co.id)}">
       <button class="city-edit-btn" data-country="${escapeAttr(co.id)}" title="Rename country" aria-label="Rename country">&#9998;</button>
       <div class="city-name">${escapeHtml(co.name)}</div>
-      <div class="city-stats" id="countryStats-${escapeAttr(co.id)}">Loading…</div>
+      <div class="city-stats" id="countryStats-${escapeAttr(co.id)}"><div class="skeleton-bar on-parchment" style="width:65%;height:11px;"></div></div>
     </div>
   `).join('');
   grid.querySelectorAll('.city-card').forEach(card=>{
@@ -2161,10 +2241,10 @@ async function showCityPicker(countryId){
   document.getElementById('boardView').style.display = 'none';
   document.getElementById('pickerView').style.display = 'block';
   document.getElementById('cityPickerTitle').textContent = 'The Ledger';
+  renderPicker(countryId); // fire immediately — don't wait on the title lookup, or the skeleton never gets a chance to paint
   const countries = await getCountriesList();
   const co = countries.find(c=>c.id===countryId);
   document.getElementById('cityPickerTitle').textContent = co ? co.name : 'The Ledger';
-  renderPicker(countryId);
 }
 
 function showBoard(countryId, cityId){
@@ -2180,6 +2260,15 @@ function showBoard(countryId, cityId){
   searchTerm = '';
   document.getElementById('search').value = '';
   document.getElementById('cityTitle').textContent = 'The Ledger';
+
+  // Skeleton while tickets load — same treatment as the picker screens, so a
+  // direct/deep-linked board load or a city switch never shows a blank page.
+  ['statTotal','statCalled','statToday','statLeads','statSold'].forEach(id=>{
+    document.getElementById(id).innerHTML = skeletonStatValueHtml();
+  });
+  pillsEl.innerHTML = '';
+  listArea.innerHTML = `<div class="grid">${skeletonTicketsHtml(9)}</div>`;
+
   getCitiesList().then(list=>{
     const c = list.find(x=>x.id===cityId);
     if(c) document.getElementById('cityTitle').textContent = c.name;
@@ -2199,24 +2288,6 @@ function router(){
   showCountryPicker();
 }
 window.addEventListener('hashchange', router);
-
-// Fixed top-right stats/menu/identity bar should get out of the way once the
-// user starts scrolling the ticket list, instead of floating over it.
-(function(){
-  const menuWrap = document.querySelector('.board-menu-wrap');
-  if(!menuWrap) return;
-  const SCROLL_HIDE_THRESHOLD = 10;
-  function updateMenuWrapVisibility(){
-    const shouldHide = window.scrollY > SCROLL_HIDE_THRESHOLD;
-    menuWrap.classList.toggle('is-scrolled', shouldHide);
-    if(shouldHide){
-      const dropdown = document.getElementById('boardMenuDropdown');
-      if(dropdown) dropdown.classList.remove('open');
-    }
-  }
-  window.addEventListener('scroll', updateMenuWrapVisibility, {passive:true});
-  updateMenuWrapVisibility();
-})();
 
 // ---- add-city modal ----
 const addCityModal = document.getElementById('addCityModal');
@@ -2301,6 +2372,33 @@ async function applyInitialRedirect(){
 }
 
 async function initApp(){
+  // Paint the *correct* screen's skeleton right away, based on the current
+  // hash — everything below this line is a Firestore round-trip (migration
+  // checks, initial redirect), and router() won't run until they resolve.
+  // Guessing the screen wrong here (e.g. always showing the country picker)
+  // means a deep link straight to a city's board flashes the wrong screen
+  // first, which looks like the app "kicking you back" to it.
+  document.getElementById('boardView').style.display = 'none';
+  document.getElementById('pickerView').style.display = 'none';
+  document.getElementById('countryView').style.display = 'none';
+
+  const h = location.hash;
+  const boardMatch = h.match(/^#\/country\/([^\/]+)\/([^\/]+)$/);
+  const cityPickerMatch = !boardMatch && h.match(/^#\/country\/([^\/]+)$/);
+
+  if(boardMatch){
+    document.getElementById('boardView').style.display = 'block';
+    listArea.innerHTML = `<div class="grid">${skeletonTicketsHtml(9)}</div>`;
+  } else if(cityPickerMatch){
+    document.getElementById('pickerView').style.display = 'block';
+    document.getElementById('cityGrid').innerHTML = skeletonCardsHtml(3);
+    document.getElementById('combinedSummary').innerHTML = skeletonSummaryHtml();
+  } else {
+    document.getElementById('countryView').style.display = 'block';
+    document.getElementById('countryGrid').innerHTML = skeletonCardsHtml(3);
+    document.getElementById('countryCombinedSummary').innerHTML = skeletonSummaryHtml();
+  }
+
   try{
     await ensureCitiesAndMigrate();
     await ensureCountriesAndMigrate();
