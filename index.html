@@ -652,6 +652,7 @@
   .conflict-stat b{display:block;font-size:22px;font-family:var(--font-mono);font-weight:500;color:var(--text);}
   .conflict-stat small{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:0.08em;color:var(--faint);}
   .conflict-stat.new-stat{border-color:var(--line-strong);background:var(--surface);}
+  .conflict-stat.update-stat{border-color:var(--line-strong);background:var(--surface);}
   .conflict-note{font-size:12.5px;color:var(--muted);margin:0 0 14px;line-height:1.65;}
   .conflict-list{max-height:28vh;overflow-y:auto;border-top:1px solid var(--line);margin-bottom:16px;}
   .conflict-row{font-size:12.5px;color:var(--muted);padding:8px 2px;border-bottom:1px solid var(--line);
@@ -837,11 +838,11 @@
 
     <div class="panel" id="panelBulk">
       <h3>Bulk paste from your Maps list</h3>
-      <p class="hint">One restaurant name per line. Example:<br>
-      Cantina do Tejo<br>
+      <p class="hint">One restaurant per line. A phone number on the same line is picked up automatically. Example:<br>
+      Cantina do Tejo, +351 912 345 678<br>
       Café Belem<br>
-      A Tasquinha</p>
-      <textarea id="fBulk" placeholder="Paste your list here…" style="min-height:140px;"></textarea>
+      A Tasquinha, 913 640 936</p>
+      <textarea id="fBulk" placeholder="Paste your list here… (name, or name + phone number)" style="min-height:140px;"></textarea>
       <p id="bulkCount" style="font-size:12px;color:var(--ink-soft);margin:6px 0 0;">0 restaurants detected</p>
       <div class="panel-actions">
         <button class="btn ghost" id="cancelBulk">Cancel</button>
@@ -914,6 +915,10 @@
       <div class="conflict-stat">
         <b id="conflictDupeCount">0</b>
         <small>Already on this board</small>
+      </div>
+      <div class="conflict-stat update-stat">
+        <b id="conflictUpdateCount">0</b>
+        <small>Getting a phone number added</small>
       </div>
       <div class="conflict-stat new-stat">
         <b id="conflictNewCount">0</b>
@@ -1485,12 +1490,12 @@ function deleteTicket(id){
   render();
 }
 
-function addTicket(name, notes){
+function addTicket(name, notes, phone){
   tickets.push({
     id: uid(),
     name: name.trim(),
     notes: (notes||'').trim(),
-    phone: '',
+    phone: (phone||'').trim(),
     status: 'not_called',
     updatedAt: Date.now(),
     claimedBy: null,
@@ -1503,9 +1508,21 @@ function addTicket(name, notes){
 // Case/whitespace-insensitive match against the current city's board, so
 // "O Xavelha" and " o xavelha " are treated as the same restaurant.
 function normName(s){ return s.trim().toLowerCase(); }
-function isDuplicateName(name){
+function findTicketByName(name){
   const norm = normName(name);
-  return tickets.some(t => normName(t.name) === norm);
+  return tickets.find(t => normName(t.name) === norm);
+}
+function isDuplicateName(name){
+  return !!findTicketByName(name);
+}
+// Fills in a phone number on an existing ticket that doesn't have one yet.
+// Never overwrites a phone number that's already there.
+function updateTicketPhone(id, phone){
+  const t = tickets.find(x=>x.id===id);
+  if(!t || t.phone) return false;
+  t.phone = phone.trim();
+  t.updatedAt = Date.now();
+  return true;
 }
 
 function render(){
@@ -1782,24 +1799,88 @@ document.getElementById('saveAdd').onclick = ()=>{
 // Splits the pasted list into names actually worth adding vs. ones already on
 // this board (or repeated within the paste itself) — used by both the live
 // counter and the actual save, so they never disagree.
+// Pulls a phone number off a pasted line (however it's separated — comma,
+// tab, dash, pipe) and returns the cleaned-up name alongside it. A line with
+// no phone-shaped text on it just comes back with phone: '', so plain
+// name-only pastes behave exactly as they did before.
+const PHONE_RE = /(\+?\(?\d[\d\s\-().]{5,}\d)/;
+function looksLikePhone(s){
+  return PHONE_RE.test(s) && (s.match(/\d/g)||[]).length >= 7;
+}
+function extractPhone(s){
+  const m = s.match(PHONE_RE);
+  return m ? m[1].trim() : '';
+}
+function parseBulkLine(line){
+  // Prefer a real delimiter — tab (spreadsheet paste), comma, or a spaced
+  // dash/pipe — so a name that happens to end in a digit (e.g. "O Bacalhau
+  // 2") never bleeds into the phone number on tab/comma-separated rows.
+  const delimMatch = line.match(/\t| - | \| |,/);
+  if(delimMatch){
+    const idx = delimMatch.index;
+    const left = line.slice(0, idx).trim();
+    const right = line.slice(idx + delimMatch[0].length).trim();
+    if(left && looksLikePhone(right)){
+      return { name: left, phone: extractPhone(right) };
+    }
+  }
+  // No usable delimiter, or the right-hand side wasn't phone-shaped (e.g. the
+  // comma was just part of the name) — fall back to a whitespace-bounded
+  // scan so "Name +351 912 345 678" (single-space paste) still works, without
+  // grabbing a trailing digit that's actually part of the name.
+  const endMatch = line.match(/(?:^|\s)(\+?\d[\d\s\-().]{5,}\d)\s*$/);
+  if(endMatch && (endMatch[1].match(/\d/g)||[]).length >= 7){
+    const name = line.slice(0, endMatch.index).trim();
+    if(name) return { name, phone: endMatch[1].trim() };
+  }
+  return { name: line.trim(), phone: '' };
+}
 function splitBulkLines(){
   const raw = document.getElementById('fBulk').value;
   const lines = raw.split('\n').map(l=>l.trim()).filter(Boolean);
   const seen = new Set();
-  const unique = [], dupes = [];
-  lines.forEach(name=>{
+  const unique = [], updates = [], dupes = [];
+  lines.forEach(line=>{
+    const { name, phone } = parseBulkLine(line);
+    if(!name) return; // e.g. a stray phone number with no name attached
     const norm = normName(name);
-    if(seen.has(norm) || isDuplicateName(name)){ dupes.push(name); }
-    else { seen.add(norm); unique.push(name); }
+    if(seen.has(norm)){ dupes.push({ name, phone }); return; }
+    const existing = findTicketByName(name);
+    if(existing){
+      // Already on the board. If the paste brings a phone number and the
+      // board entry doesn't have one yet, fill it in instead of skipping —
+      // that's the whole point of re-pasting an enriched list.
+      if(phone && !existing.phone){
+        seen.add(norm);
+        updates.push({ name, phone, id: existing.id });
+      } else {
+        dupes.push({ name, phone });
+      }
+    } else {
+      seen.add(norm);
+      unique.push({ name, phone });
+    }
   });
-  return { unique, dupes };
+  return { unique, updates, dupes };
 }
 function updateBulkCount(){
-  const { unique, dupes } = splitBulkLines();
-  const n = unique.length + dupes.length;
+  const { unique, updates, dupes } = splitBulkLines();
+  const all = unique.concat(updates).concat(dupes);
+  const n = all.length;
+  const withPhone = all.filter(x=>x.phone).length;
   let text = n + (n===1 ? ' restaurant detected' : ' restaurants detected');
+  if(withPhone>0){
+    text += ` (${withPhone} with a phone number)`;
+  }
+  const bits = [];
+  if(updates.length>0){
+    bits.push(`${updates.length} will get a phone number added`);
+  }
   if(dupes.length>0){
-    text += ` — ${dupes.length} already on this board, will be skipped`;
+    bits.push(`${dupes.length} already complete, will be skipped`);
+  }
+  if(bits.length>0){
+    text += ` — ${bits.join(', ')}`;
   }
   document.getElementById('bulkCount').textContent = text;
 }
@@ -1812,34 +1893,48 @@ document.getElementById('fBulk').addEventListener('input', updateBulkCount);
 const conflictModal = document.getElementById('conflictModal');
 const conflictList = document.getElementById('conflictList');
 let conflictUniqueCache = [];
+let conflictUpdatesCache = [];
 
 function escapeHtml(s){
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function openConflictModal(unique, dupes){
+function openConflictModal(unique, updates, dupes){
   conflictUniqueCache = unique;
+  conflictUpdatesCache = updates;
 
   document.getElementById('conflictDupeCount').textContent = dupes.length;
+  document.getElementById('conflictUpdateCount').textContent = updates.length;
   document.getElementById('conflictNewCount').textContent = unique.length;
 
-  document.getElementById('conflictNote').textContent = unique.length > 0
-    ? `${dupes.length} restaurant${dupes.length===1?' is':'s are'} already on this board and will be skipped. Only the ${unique.length} new ${unique.length===1?'name':'names'} will be added.`
-    : `All ${dupes.length} pasted names are already on this board. Nothing new to add.`;
+  const parts = [];
+  if(updates.length > 0){
+    parts.push(`${updates.length} already on the board will get the phone number from your paste added`);
+  }
+  if(unique.length > 0){
+    parts.push(`${unique.length} new ${unique.length===1?'name':'names'} will be added`);
+  }
+  if(dupes.length > 0){
+    parts.push(`${dupes.length} ${dupes.length===1?'is':'are'} already complete and will be skipped`);
+  }
+  document.getElementById('conflictNote').textContent = parts.length
+    ? parts.join('. ') + '.'
+    : 'Nothing new to add.';
 
   const listLabel = document.getElementById('conflictListLabel');
   if(dupes.length > 0){
     listLabel.style.display = 'block';
-    conflictList.innerHTML = dupes.map(name=> `<div class="conflict-row">${escapeHtml(name)}</div>`).join('');
+    conflictList.innerHTML = dupes.map(d=> `<div class="conflict-row">${escapeHtml(d.name)}</div>`).join('');
   } else {
     listLabel.style.display = 'none';
     conflictList.innerHTML = '';
   }
 
+  const total = unique.length + updates.length;
   const confirmBtn = document.getElementById('conflictConfirm');
-  confirmBtn.disabled = unique.length === 0;
-  confirmBtn.style.opacity = unique.length === 0 ? '0.5' : '1';
-  confirmBtn.style.cursor = unique.length === 0 ? 'default' : 'pointer';
+  confirmBtn.disabled = total === 0;
+  confirmBtn.style.opacity = total === 0 ? '0.5' : '1';
+  confirmBtn.style.cursor = total === 0 ? 'default' : 'pointer';
 
   conflictModal.classList.add('open');
 }
@@ -1853,30 +1948,34 @@ conflictModal.addEventListener('click', e=>{ if(e.target === conflictModal) clos
 document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && conflictModal.classList.contains('open')) closeConflictModal(); });
 
 document.getElementById('conflictConfirm').onclick = ()=>{
-  if(conflictUniqueCache.length === 0) return;
+  const total = conflictUniqueCache.length + conflictUpdatesCache.length;
+  if(total === 0) return;
 
-  conflictUniqueCache.forEach(name=> addTicket(name, ''));
+  conflictUniqueCache.forEach(item=> addTicket(item.name, '', item.phone));
+  conflictUpdatesCache.forEach(item=> updateTicketPhone(item.id, item.phone));
   scheduleSave();
   document.getElementById('fBulk').value='';
   render();
   closeConflictModal();
 
-  document.getElementById('bulkCount').textContent =
-    `Added ${conflictUniqueCache.length} restaurant${conflictUniqueCache.length===1?'':'s'}.`;
+  const bits = [];
+  if(conflictUniqueCache.length) bits.push(`added ${conflictUniqueCache.length} new`);
+  if(conflictUpdatesCache.length) bits.push(`filled in ${conflictUpdatesCache.length} phone number${conflictUpdatesCache.length===1?'':'s'}`);
+  document.getElementById('bulkCount').textContent = bits.join(', ') + '.';
   updateBulkCount();
   panelBulk.classList.remove('open');
 };
 
 document.getElementById('saveBulk').onclick = ()=>{
-  const { unique, dupes } = splitBulkLines();
+  const { unique, updates, dupes } = splitBulkLines();
 
-  if(unique.length === 0 && dupes.length === 0){
+  if(unique.length === 0 && updates.length === 0 && dupes.length === 0){
     return; // nothing pasted — nothing to do
   }
 
-  if(dupes.length === 0){
-    // No conflicts at all — just add everything, no need to interrupt with a modal.
-    unique.forEach(name=> addTicket(name, ''));
+  if(dupes.length === 0 && updates.length === 0){
+    // No conflicts and nothing to update — just add everything, no need to interrupt with a modal.
+    unique.forEach(item=> addTicket(item.name, '', item.phone));
     scheduleSave();
     document.getElementById('fBulk').value='';
     render();
@@ -1885,7 +1984,7 @@ document.getElementById('saveBulk').onclick = ()=>{
     return;
   }
 
-  openConflictModal(unique, dupes);
+  openConflictModal(unique, updates, dupes);
 };
 
 const detailModal = document.getElementById('detailModal');
